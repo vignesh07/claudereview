@@ -12,40 +12,95 @@ export function renderSessionToHtml(session: ParsedSession, options?: RenderOpti
     salt,
   } = options || {};
 
+  const sessionDataForViewer = encrypted
+    ? { encrypted: true, encryptedBlob, iv, salt, metadata: session.metadata, title: session.title, id: session.id }
+    : session;
+
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>${escapeHtml(session.title)} - Claude Code Session</title>
+  <title>${escapeHtml(session.title)} | claudereview</title>
   ${renderOgTags(session)}
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
   <style>${CSS}</style>
 </head>
 <body>
   <div id="app">
-    ${encrypted ? renderPasswordPrompt() : ''}
-    <div id="viewer" class="${encrypted ? 'hidden' : ''}">
+    <!-- Search overlay -->
+    <div id="search-overlay" class="search-overlay hidden">
+      <div class="search-box">
+        <span class="search-icon">⌘F</span>
+        <input type="text" id="search-input" placeholder="Search in session..." autocomplete="off">
+        <span id="search-count" class="search-count"></span>
+        <button id="search-prev" class="search-nav" title="Previous (↑)">↑</button>
+        <button id="search-next" class="search-nav" title="Next (↓)">↓</button>
+        <button id="search-close" class="search-close" title="Close (Esc)">×</button>
+      </div>
+    </div>
+
+    <!-- Password prompt (only shown for encrypted private sessions) -->
+    <div id="password-prompt" class="password-prompt ${encrypted && salt ? '' : 'hidden'}">
+      <div class="prompt-container">
+        <div class="terminal-window">
+          <div class="terminal-header">
+            <span class="terminal-dot red"></span>
+            <span class="terminal-dot yellow"></span>
+            <span class="terminal-dot green"></span>
+            <span class="terminal-title">authenticate</span>
+          </div>
+          <div class="terminal-body">
+            <div class="prompt-line">
+              <span class="prompt-symbol">❯</span>
+              <span class="prompt-text">This session is password protected</span>
+            </div>
+            <form id="password-form" class="password-form">
+              <div class="input-line">
+                <span class="prompt-symbol dimmed">password:</span>
+                <input type="password" id="password-input" autocomplete="off" autofocus>
+              </div>
+              <div id="password-error" class="error-line hidden">
+                <span class="error-symbol">✗</span>
+                <span class="error-text">Incorrect password</span>
+              </div>
+              <button type="submit" class="submit-btn">unlock →</button>
+            </form>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Main viewer -->
+    <div id="viewer" class="${encrypted && salt ? 'hidden' : ''}">
       ${renderHeader(session)}
-      <main id="messages">
-        ${encrypted ? '' : renderMessages(session.messages)}
-      </main>
+
+      <div class="session-container">
+        <main id="messages" class="messages">
+          ${encrypted ? '' : renderMessages(session.messages)}
+        </main>
+      </div>
+
+      <footer class="viewer-footer">
+        <div class="footer-hint">
+          <kbd>⌘</kbd><kbd>F</kbd> search
+          <span class="sep">·</span>
+          <kbd>J</kbd><kbd>K</kbd> navigate
+          <span class="sep">·</span>
+          <kbd>C</kbd> collapse all
+        </div>
+        <a href="https://claudereview.com" class="footer-brand" target="_blank">
+          <span class="brand-icon">◈</span> claudereview
+        </a>
+      </footer>
     </div>
   </div>
 
-  ${encrypted ? `
-  <script id="session-data" type="application/json">${JSON.stringify({
-    encryptedBlob,
-    iv,
-    salt,
-    metadata: session.metadata,
-    title: session.title,
-  })}</script>
-  <script>${BROWSER_CRYPTO_CODE}</script>
-  <script>${VIEWER_JS_ENCRYPTED}</script>
-  ` : `
-  <script id="session-data" type="application/json">${JSON.stringify(session)}</script>
+  <script id="session-data" type="application/json">${JSON.stringify(sessionDataForViewer)}</script>
+  ${encrypted ? `<script>${BROWSER_CRYPTO_CODE}</script>` : ''}
   <script>${VIEWER_JS}</script>
-  `}
 </body>
 </html>`;
 }
@@ -54,163 +109,203 @@ interface RenderOptions {
   encrypted?: boolean;
   encryptedBlob?: string;
   iv?: string;
-  salt?: string; // Only for private sessions
+  salt?: string;
 }
 
 function renderOgTags(session: ParsedSession): string {
-  const description = `${session.metadata.messageCount} messages · ${formatDuration(session.metadata.durationSeconds)} · Tools: ${formatToolUsage(session.metadata.tools)}`;
+  const toolList = Object.entries(session.metadata.tools)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 3)
+    .map(([name, count]) => `${name}×${count}`)
+    .join(' ');
+
+  const description = `${session.metadata.messageCount} messages · ${formatDuration(session.metadata.durationSeconds)}${toolList ? ` · ${toolList}` : ''}`;
 
   return `
   <meta property="og:type" content="website">
-  <meta property="og:title" content="Claude Session: ${escapeHtml(session.title)}">
+  <meta property="og:title" content="${escapeHtml(truncate(session.title, 60))}">
   <meta property="og:description" content="${escapeHtml(description)}">
-  <meta property="og:site_name" content="claudereview.com">
+  <meta property="og:site_name" content="claudereview">
   <meta name="twitter:card" content="summary">
-  <meta name="twitter:title" content="Claude Session: ${escapeHtml(session.title)}">
-  <meta name="twitter:description" content="${escapeHtml(description)}">`;
+  <meta name="twitter:title" content="${escapeHtml(truncate(session.title, 60))}">
+  <meta name="twitter:description" content="${escapeHtml(description)}">
+  <meta name="theme-color" content="#0a0a0a">`;
 }
 
 function renderHeader(session: ParsedSession): string {
+  const toolsSummary = Object.entries(session.metadata.tools)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 5)
+    .map(([name, count]) => `<span class="tool-badge">${name}<span class="tool-count">${count}</span></span>`)
+    .join('');
+
   return `
-  <header>
-    <div class="header-main">
-      <div class="logo">
+  <header class="viewer-header">
+    <div class="header-top">
+      <a href="https://claudereview.com" class="logo" target="_blank">
         <span class="logo-icon">◈</span>
-        <span class="logo-text">claude<span class="logo-accent">review</span></span>
+        <span class="logo-text">claudereview</span>
+      </a>
+      <div class="header-actions">
+        <button id="collapse-all-btn" class="action-btn" title="Collapse all (C)">
+          <span class="action-icon">⊟</span>
+        </button>
+        <button id="expand-all-btn" class="action-btn" title="Expand all (E)">
+          <span class="action-icon">⊞</span>
+        </button>
+        <button id="copy-link-btn" class="action-btn" title="Copy link">
+          <span class="action-icon">🔗</span>
+        </button>
       </div>
-      <div class="session-id">${session.id.slice(0, 8)}</div>
     </div>
-    <h1 class="session-title">${escapeHtml(session.title)}</h1>
-    <div class="session-meta">
-      <span class="meta-item">${session.metadata.messageCount} messages</span>
-      <span class="meta-sep">·</span>
-      <span class="meta-item">${formatDuration(session.metadata.durationSeconds)}</span>
-      <span class="meta-sep">·</span>
-      <span class="meta-item">${formatToolUsage(session.metadata.tools)}</span>
+
+    <div class="session-info">
+      <h1 class="session-title">${escapeHtml(truncate(session.title, 120))}</h1>
+      <div class="session-meta">
+        <span class="meta-item">
+          <span class="meta-icon">💬</span>
+          ${session.metadata.messageCount} messages
+        </span>
+        <span class="meta-item">
+          <span class="meta-icon">⏱</span>
+          ${formatDuration(session.metadata.durationSeconds)}
+        </span>
+        <span class="meta-item session-id">
+          ${session.id.slice(0, 8)}
+        </span>
+      </div>
+      ${toolsSummary ? `<div class="tools-used">${toolsSummary}</div>` : ''}
     </div>
   </header>`;
 }
 
-function renderPasswordPrompt(): string {
+function renderMessages(messages: ParsedMessage[]): string {
+  const groups = groupMessages(messages);
+  return groups.map((group, idx) => renderMessageGroup(group, idx)).join('\n');
+}
+
+interface MessageGroup {
+  type: 'human' | 'assistant';
+  messages: ParsedMessage[];
+}
+
+function groupMessages(messages: ParsedMessage[]): MessageGroup[] {
+  const groups: MessageGroup[] = [];
+  let currentGroup: MessageGroup | null = null;
+
+  for (const msg of messages) {
+    const groupType = msg.type === 'human' ? 'human' : 'assistant';
+
+    if (!currentGroup || currentGroup.type !== groupType) {
+      if (currentGroup) groups.push(currentGroup);
+      currentGroup = { type: groupType, messages: [] };
+    }
+    currentGroup.messages.push(msg);
+  }
+
+  if (currentGroup) groups.push(currentGroup);
+  return groups;
+}
+
+function renderMessageGroup(group: MessageGroup, index: number): string {
+  if (group.type === 'human') {
+    return group.messages.map(msg => renderHumanMessage(msg)).join('\n');
+  } else {
+    return `
+    <div class="assistant-group" data-group="${index}">
+      <div class="assistant-indicator">
+        <span class="indicator-icon">●</span>
+        <span class="indicator-text">Claude</span>
+      </div>
+      <div class="assistant-content">
+        ${group.messages.map(msg => renderAssistantItem(msg)).join('\n')}
+      </div>
+    </div>`;
+  }
+}
+
+function renderHumanMessage(message: ParsedMessage): string {
+  const content = message.content || '';
+  const isLong = content.length > 500;
+
   return `
-  <div id="password-prompt" class="password-prompt">
-    <div class="prompt-box">
-      <div class="prompt-icon">🔐</div>
-      <h2>This session is password protected</h2>
-      <p>Enter the password to view this session</p>
-      <form id="password-form">
-        <input type="password" id="password-input" placeholder="Password" autocomplete="off" autofocus>
-        <button type="submit">Unlock</button>
-      </form>
-      <div id="password-error" class="error hidden"></div>
+  <div class="message human-message" id="${message.id}">
+    <div class="message-gutter">
+      <span class="human-prompt">❯</span>
+    </div>
+    <div class="message-body">
+      <div class="human-content ${isLong ? 'collapsible collapsed' : ''}" ${isLong ? 'data-full-height="auto"' : ''}>
+        ${formatContent(content)}
+      </div>
+      ${isLong ? `<button class="expand-toggle" data-target="${message.id}">Show more ↓</button>` : ''}
+      <div class="message-meta">
+        <span class="meta-time">${formatTime(message.timestamp)}</span>
+        <button class="copy-link-inline" data-id="${message.id}" title="Copy link">🔗</button>
+      </div>
     </div>
   </div>`;
 }
 
-function renderMessages(messages: ParsedMessage[]): string {
-  return messages.map((msg, index) => renderMessage(msg, index)).join('\n');
-}
-
-function renderMessage(message: ParsedMessage, index: number): string {
+function renderAssistantItem(message: ParsedMessage): string {
   switch (message.type) {
-    case 'human':
-      return renderHumanMessage(message, index);
     case 'assistant':
-      return renderAssistantMessage(message, index);
+      return renderAssistantText(message);
     case 'tool_call':
-      return renderToolCall(message, index);
+      return renderToolCall(message);
     case 'tool_result':
-      return renderToolResult(message, index);
+      return renderToolResult(message);
     default:
       return '';
   }
 }
 
-function renderHumanMessage(message: ParsedMessage, index: number): string {
+function renderAssistantText(message: ParsedMessage): string {
+  const content = message.content || '';
+  if (!content.trim()) return '';
+
   return `
-  <div class="message human" id="${message.id}" data-index="${index}">
-    <div class="message-header">
-      <span class="prompt-char">❯</span>
-      <span class="message-time">${formatTime(message.timestamp)}</span>
-      <button class="copy-link" title="Copy link to this message">🔗</button>
-    </div>
-    <div class="message-content">${escapeHtml(message.content)}</div>
+  <div class="assistant-text" id="${message.id}">
+    ${formatContent(content)}
   </div>`;
 }
 
-function renderAssistantMessage(message: ParsedMessage, index: number): string {
-  let content = message.content;
-
-  // If there are parts with tool calls, render them inline
-  if (message.parts && message.parts.length > 0) {
-    const partHtml = message.parts.map(part => {
-      if (part.type === 'text') {
-        return `<p>${escapeHtml(part.content || '')}</p>`;
-      } else if (part.type === 'tool_call') {
-        return renderInlineToolCall(part);
-      }
-      return '';
-    }).join('\n');
-
-    return `
-    <div class="message assistant" id="${message.id}" data-index="${index}">
-      <div class="message-content">${partHtml}</div>
-    </div>`;
-  }
-
-  return `
-  <div class="message assistant" id="${message.id}" data-index="${index}">
-    <div class="message-content">${formatAssistantContent(content)}</div>
-  </div>`;
-}
-
-function renderInlineToolCall(part: { toolName?: string; toolInput?: Record<string, unknown>; toolId?: string }): string {
-  const name = part.toolName || 'Tool';
-  const summary = formatToolSummary(name, part.toolInput);
-
-  return `
-  <div class="tool-call inline">
-    <div class="tool-header">
-      <span class="tool-name">${escapeHtml(name)}</span>
-    </div>
-    <div class="tool-summary">${escapeHtml(summary)}</div>
-  </div>`;
-}
-
-function renderToolCall(message: ParsedMessage, index: number): string {
+function renderToolCall(message: ParsedMessage): string {
   const name = message.toolName || 'Tool';
+  const icon = getToolIcon(name);
   const summary = formatToolSummary(name, message.toolInput);
 
   return `
-  <div class="message tool-call" id="${message.id}" data-index="${index}">
-    <div class="tool-box">
-      <div class="tool-header">
-        <span class="tool-icon">${getToolIcon(name)}</span>
-        <span class="tool-name">${escapeHtml(name)}</span>
-        <span class="message-time">${formatTime(message.timestamp)}</span>
-      </div>
-      <div class="tool-summary">${escapeHtml(summary)}</div>
+  <div class="tool-call" id="${message.id}">
+    <div class="tool-header">
+      <span class="tool-icon">${icon}</span>
+      <span class="tool-name">${escapeHtml(name)}</span>
+      <span class="tool-summary">${escapeHtml(summary)}</span>
     </div>
   </div>`;
 }
 
-function renderToolResult(message: ParsedMessage, index: number): string {
+function renderToolResult(message: ParsedMessage): string {
   const output = message.toolOutput || message.content || '';
   const lines = output.split('\n');
-  const isLong = lines.length > 10;
-  const preview = isLong ? lines.slice(0, 5).join('\n') : output;
+  const lineCount = lines.length;
+  const isLong = lineCount > 15;
   const isError = message.isError;
 
+  // Detect language for syntax highlighting
+  const language = detectLanguage(output);
+
+  const preview = isLong ? lines.slice(0, 10).join('\n') : output;
+
   return `
-  <div class="message tool-result ${isError ? 'error' : ''}" id="${message.id}" data-index="${index}">
-    <div class="tool-output ${isLong ? 'collapsed' : ''}">
-      <pre class="output-content">${escapeHtml(isLong ? preview : output)}</pre>
-      ${isLong ? `
-      <div class="output-expand" data-full="${escapeAttr(output)}">
-        <button class="expand-btn">+ ${lines.length - 5} more lines</button>
-      </div>
-      ` : ''}
+  <div class="tool-result ${isError ? 'error' : ''} ${isLong ? 'collapsible collapsed' : ''}" id="${message.id}">
+    <div class="result-content">
+      <pre class="output-pre"><code class="language-${language}">${escapeHtml(isLong ? preview : output)}</code></pre>
     </div>
+    ${isLong ? `
+    <div class="result-expand" data-full="${escapeAttr(output)}">
+      <button class="expand-btn">↓ ${lineCount - 10} more lines</button>
+    </div>
+    ` : ''}
   </div>`;
 }
 
@@ -219,68 +314,94 @@ function formatToolSummary(name: string, input?: Record<string, unknown>): strin
 
   switch (name) {
     case 'Bash':
-      return `$ ${input.command || ''}`;
+      const cmd = String(input.command || '');
+      return cmd.length > 80 ? cmd.slice(0, 80) + '...' : cmd;
     case 'Read':
-      return `${input.file_path || ''}`;
+      return String(input.file_path || '');
     case 'Write':
-      return `${input.file_path || ''}`;
+      return String(input.file_path || '');
     case 'Edit':
-      return `${input.file_path || ''}`;
+      return String(input.file_path || '');
     case 'Glob':
-      return `${input.pattern || ''}`;
+      return String(input.pattern || '');
     case 'Grep':
-      return `${input.pattern || ''}`;
+      return String(input.pattern || '');
     case 'Task':
-      return `${input.description || input.prompt?.toString().slice(0, 50) || ''}...`;
+      return String(input.description || '').slice(0, 60);
     default:
-      return JSON.stringify(input).slice(0, 100);
+      const str = JSON.stringify(input);
+      return str.length > 60 ? str.slice(0, 60) + '...' : str;
   }
 }
 
 function getToolIcon(name: string): string {
   const icons: Record<string, string> = {
-    'Bash': '⌘',
-    'Read': '📄',
-    'Write': '✏️',
-    'Edit': '📝',
-    'Glob': '🔍',
-    'Grep': '🔎',
-    'Task': '🤖',
-    'WebFetch': '🌐',
-    'WebSearch': '🔍',
+    'Bash': '$',
+    'Read': '◇',
+    'Write': '◆',
+    'Edit': '✎',
+    'Glob': '⊛',
+    'Grep': '⊙',
+    'Task': '⊳',
+    'WebFetch': '↗',
+    'WebSearch': '◎',
+    'TodoWrite': '☑',
   };
-  return icons[name] || '⚙️';
+  return icons[name] || '⊡';
 }
 
-function formatAssistantContent(content: string): string {
-  // Basic markdown-like formatting
-  return content
+function detectLanguage(content: string): string {
+  // Simple heuristics for syntax highlighting
+  if (content.includes('function ') || content.includes('const ') || content.includes('let ')) return 'javascript';
+  if (content.includes('def ') || content.includes('import ') && content.includes(':')) return 'python';
+  if (content.includes('package ') || content.includes('func ')) return 'go';
+  if (content.includes('fn ') || content.includes('let mut')) return 'rust';
+  if (content.startsWith('{') || content.startsWith('[')) return 'json';
+  if (content.includes('<!DOCTYPE') || content.includes('<html')) return 'html';
+  if (content.includes('SELECT ') || content.includes('CREATE TABLE')) return 'sql';
+  return 'plaintext';
+}
+
+function formatContent(content: string): string {
+  // Handle code blocks with syntax highlighting hints
+  let formatted = content;
+
+  // Replace ```language blocks
+  formatted = formatted.replace(/```(\w+)?\n([\s\S]*?)```/g, (_, lang, code) => {
+    const language = lang || 'plaintext';
+    return `<pre class="code-block"><code class="language-${language}">${escapeHtml(code.trim())}</code></pre>`;
+  });
+
+  // Replace inline code
+  formatted = formatted.replace(/`([^`]+)`/g, '<code class="inline-code">$1</code>');
+
+  // Replace paragraphs
+  formatted = formatted
     .split('\n\n')
-    .map(para => `<p>${escapeHtml(para).replace(/\n/g, '<br>')}</p>`)
+    .map(para => {
+      if (para.startsWith('<pre') || para.startsWith('<code')) return para;
+      return `<p>${para.replace(/\n/g, '<br>')}</p>`;
+    })
     .join('\n');
+
+  return formatted;
 }
 
 function formatDuration(seconds: number): string {
   if (seconds < 60) return `${seconds}s`;
-  if (seconds < 3600) return `${Math.round(seconds / 60)}min`;
+  if (seconds < 3600) return `${Math.round(seconds / 60)}m`;
   const hours = Math.floor(seconds / 3600);
   const mins = Math.round((seconds % 3600) / 60);
   return `${hours}h ${mins}m`;
 }
 
-function formatToolUsage(tools: Record<string, number>): string {
-  const entries = Object.entries(tools).sort((a, b) => b[1] - a[1]);
-  if (entries.length === 0) return 'no tools';
-  if (entries.length <= 3) {
-    return entries.map(([name, count]) => `${name} (${count})`).join(', ');
-  }
-  return entries.slice(0, 3).map(([name, count]) => `${name} (${count})`).join(', ') + '...';
-}
-
 function formatTime(timestamp: string): string {
   try {
-    const date = new Date(timestamp);
-    return date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+    return new Date(timestamp).toLocaleTimeString('en-US', {
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false
+    });
   } catch {
     return '';
   }
@@ -301,399 +422,776 @@ function escapeAttr(str: string): string {
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#039;')
     .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;');
+    .replace(/>/g, '&gt;')
+    .replace(/\n/g, '&#10;');
 }
 
-// CSS for the TUI-style viewer
+function truncate(str: string, max: number): string {
+  if (str.length <= max) return str;
+  return str.slice(0, max - 1) + '…';
+}
+
+// ============================================================================
+// CSS - Terminal/IDE Aesthetic
+// ============================================================================
+
 const CSS = `
+/* ========== CSS Variables ========== */
 :root {
-  --bg: #0d1117;
-  --bg-secondary: #161b22;
-  --bg-tertiary: #21262d;
-  --border: #30363d;
-  --text: #c9d1d9;
-  --text-muted: #8b949e;
-  --text-bright: #f0f6fc;
-  --accent: #58a6ff;
-  --accent-muted: #388bfd;
-  --green: #3fb950;
-  --yellow: #d29922;
-  --red: #f85149;
-  --purple: #a371f7;
-  --font-mono: 'JetBrains Mono', 'Fira Code', 'SF Mono', Menlo, monospace;
-  --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+  /* Base colors - true terminal dark */
+  --bg-primary: #0a0a0a;
+  --bg-secondary: #111111;
+  --bg-tertiary: #1a1a1a;
+  --bg-elevated: #222222;
+
+  /* Text hierarchy */
+  --text-primary: #e0e0e0;
+  --text-secondary: #888888;
+  --text-muted: #555555;
+  --text-bright: #ffffff;
+
+  /* Accent colors - ANSI-inspired */
+  --accent-green: #4ec970;
+  --accent-blue: #5c9fd7;
+  --accent-purple: #b38bff;
+  --accent-yellow: #e6c07b;
+  --accent-red: #e06c75;
+  --accent-cyan: #56c8d8;
+  --accent-orange: #d19a66;
+
+  /* Semantic */
+  --human-accent: var(--accent-green);
+  --claude-accent: var(--accent-purple);
+  --tool-accent: var(--accent-blue);
+  --error-accent: var(--accent-red);
+
+  /* Borders */
+  --border-subtle: #2a2a2a;
+  --border-medium: #3a3a3a;
+
+  /* Fonts */
+  --font-mono: 'JetBrains Mono', 'IBM Plex Mono', 'SF Mono', Menlo, monospace;
+  --font-size-xs: 11px;
+  --font-size-sm: 12px;
+  --font-size-base: 13px;
+  --font-size-lg: 14px;
+
+  /* Spacing */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+
+  /* Misc */
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --transition-fast: 0.15s ease;
 }
 
-* {
+/* ========== Reset & Base ========== */
+*, *::before, *::after {
   box-sizing: border-box;
   margin: 0;
   padding: 0;
 }
 
-html, body {
-  background: var(--bg);
-  color: var(--text);
+html {
+  font-size: 16px;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
   font-family: var(--font-mono);
-  font-size: 14px;
+  font-size: var(--font-size-base);
   line-height: 1.6;
+  color: var(--text-primary);
+  background: var(--bg-primary);
   min-height: 100vh;
 }
 
 #app {
-  max-width: 900px;
-  margin: 0 auto;
-  padding: 2rem;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
 }
 
 .hidden {
   display: none !important;
 }
 
-/* Header */
-header {
-  margin-bottom: 2rem;
-  padding-bottom: 1.5rem;
-  border-bottom: 1px solid var(--border);
+/* ========== Search Overlay ========== */
+.search-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 1000;
+  padding: var(--space-4);
+  background: linear-gradient(to bottom, var(--bg-primary) 0%, transparent 100%);
+  animation: slideDown 0.2s ease;
 }
 
-.header-main {
+@keyframes slideDown {
+  from { transform: translateY(-100%); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+
+.search-box {
+  max-width: 600px;
+  margin: 0 auto;
   display: flex;
-  justify-content: space-between;
   align-items: center;
-  margin-bottom: 0.5rem;
+  gap: var(--space-2);
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-medium);
+  border-radius: var(--radius-md);
+  padding: var(--space-2) var(--space-3);
+}
+
+.search-icon {
+  color: var(--text-muted);
+  font-size: var(--font-size-xs);
+  background: var(--bg-secondary);
+  padding: 2px 6px;
+  border-radius: 3px;
+}
+
+.search-box input {
+  flex: 1;
+  background: transparent;
+  border: none;
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-base);
+  outline: none;
+}
+
+.search-box input::placeholder {
+  color: var(--text-muted);
+}
+
+.search-count {
+  color: var(--text-secondary);
+  font-size: var(--font-size-xs);
+}
+
+.search-nav, .search-close {
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  padding: var(--space-1);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-sm);
+  transition: color var(--transition-fast);
+}
+
+.search-nav:hover, .search-close:hover {
+  color: var(--text-primary);
+}
+
+/* ========== Password Prompt ========== */
+.password-prompt {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-primary);
+  z-index: 100;
+}
+
+.prompt-container {
+  width: 100%;
+  max-width: 420px;
+  padding: var(--space-4);
+}
+
+.terminal-window {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-medium);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+}
+
+.terminal-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  background: var(--bg-tertiary);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.terminal-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+}
+
+.terminal-dot.red { background: #ff5f57; }
+.terminal-dot.yellow { background: #febc2e; }
+.terminal-dot.green { background: #28c840; }
+
+.terminal-title {
+  margin-left: auto;
+  color: var(--text-muted);
+  font-size: var(--font-size-xs);
+}
+
+.terminal-body {
+  padding: var(--space-5);
+}
+
+.prompt-line {
+  display: flex;
+  gap: var(--space-2);
+  margin-bottom: var(--space-4);
+}
+
+.prompt-symbol {
+  color: var(--human-accent);
+  font-weight: 600;
+}
+
+.prompt-symbol.dimmed {
+  color: var(--text-muted);
+}
+
+.prompt-text {
+  color: var(--text-primary);
+}
+
+.password-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.input-line {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.password-form input {
+  flex: 1;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-medium);
+  border-radius: var(--radius-sm);
+  padding: var(--space-2) var(--space-3);
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-base);
+  outline: none;
+  transition: border-color var(--transition-fast);
+}
+
+.password-form input:focus {
+  border-color: var(--accent-green);
+}
+
+.error-line {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--error-accent);
+  font-size: var(--font-size-sm);
+}
+
+.error-symbol {
+  font-weight: bold;
+}
+
+.submit-btn {
+  align-self: flex-start;
+  background: var(--accent-green);
+  color: var(--bg-primary);
+  border: none;
+  border-radius: var(--radius-sm);
+  padding: var(--space-2) var(--space-4);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity var(--transition-fast);
+}
+
+.submit-btn:hover {
+  opacity: 0.9;
+}
+
+/* ========== Header ========== */
+.viewer-header {
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  background: var(--bg-primary);
+  border-bottom: 1px solid var(--border-subtle);
+  padding: var(--space-4) var(--space-5);
+}
+
+.header-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--space-3);
 }
 
 .logo {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
+  gap: var(--space-2);
+  text-decoration: none;
+  color: var(--text-secondary);
+  transition: color var(--transition-fast);
+}
+
+.logo:hover {
+  color: var(--text-primary);
 }
 
 .logo-icon {
-  color: var(--accent);
-  font-size: 1.25rem;
+  color: var(--accent-purple);
+  font-size: 18px;
 }
 
 .logo-text {
-  font-size: 1rem;
+  font-size: var(--font-size-sm);
   font-weight: 500;
-  color: var(--text-muted);
 }
 
-.logo-accent {
-  color: var(--accent);
+.header-actions {
+  display: flex;
+  gap: var(--space-2);
 }
 
-.session-id {
-  font-size: 0.875rem;
-  color: var(--text-muted);
-  font-family: var(--font-mono);
-  background: var(--bg-secondary);
-  padding: 0.25rem 0.5rem;
-  border-radius: 4px;
+.action-btn {
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  padding: var(--space-1) var(--space-2);
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: var(--font-size-sm);
+  transition: all var(--transition-fast);
+}
+
+.action-btn:hover {
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+  border-color: var(--border-medium);
+}
+
+.session-info {
+  max-width: 800px;
 }
 
 .session-title {
-  font-size: 1.25rem;
+  font-size: var(--font-size-lg);
   font-weight: 600;
   color: var(--text-bright);
-  margin-bottom: 0.5rem;
-  font-family: var(--font-sans);
+  margin-bottom: var(--space-2);
+  line-height: 1.4;
 }
 
 .session-meta {
   display: flex;
-  gap: 0.5rem;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  font-size: var(--font-size-xs);
+  color: var(--text-secondary);
+}
+
+.meta-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.meta-icon {
+  opacity: 0.7;
+}
+
+.session-id {
+  font-family: var(--font-mono);
+  background: var(--bg-tertiary);
+  padding: 2px 6px;
+  border-radius: 3px;
   color: var(--text-muted);
-  font-size: 0.875rem;
 }
 
-.meta-sep {
-  opacity: 0.5;
+.tools-used {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
 }
 
-/* Messages */
-#messages {
+.tool-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  background: var(--bg-tertiary);
+  padding: 3px 8px;
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-xs);
+  color: var(--tool-accent);
+}
+
+.tool-count {
+  color: var(--text-muted);
+  margin-left: 2px;
+}
+
+/* ========== Messages Container ========== */
+.session-container {
+  flex: 1;
+  padding: var(--space-5);
+  max-width: 900px;
+  margin: 0 auto;
+  width: 100%;
+}
+
+.messages {
   display: flex;
   flex-direction: column;
-  gap: 1rem;
+  gap: var(--space-5);
 }
 
-.message {
+/* ========== Human Messages ========== */
+.human-message {
+  display: flex;
+  gap: var(--space-3);
+}
+
+.message-gutter {
+  flex-shrink: 0;
+  width: 20px;
+  padding-top: 2px;
+}
+
+.human-prompt {
+  color: var(--human-accent);
+  font-weight: 700;
+  font-size: 16px;
+}
+
+.message-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.human-content {
+  color: var(--text-bright);
+  font-weight: 500;
+}
+
+.human-content.collapsed {
+  max-height: 200px;
+  overflow: hidden;
   position: relative;
 }
 
-.message:target,
-.message.highlighted {
-  animation: highlight 2s ease-out;
+.human-content.collapsed::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 60px;
+  background: linear-gradient(transparent, var(--bg-primary));
 }
 
-@keyframes highlight {
-  0% { background: rgba(88, 166, 255, 0.2); }
-  100% { background: transparent; }
+.expand-toggle {
+  background: transparent;
+  border: none;
+  color: var(--accent-blue);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  cursor: pointer;
+  padding: var(--space-2) 0;
 }
 
-/* Human messages */
-.message.human {
-  background: var(--bg-secondary);
-  border-left: 3px solid var(--accent);
-  padding: 1rem;
-  border-radius: 0 8px 8px 0;
+.expand-toggle:hover {
+  text-decoration: underline;
 }
 
-.message.human .message-header {
+.message-meta {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
-  margin-bottom: 0.5rem;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
 }
 
-.prompt-char {
-  color: var(--accent);
-  font-weight: bold;
-}
-
-.message-time {
+.meta-time {
+  font-size: var(--font-size-xs);
   color: var(--text-muted);
-  font-size: 0.75rem;
-  margin-left: auto;
 }
 
-.copy-link {
-  background: none;
+.copy-link-inline {
+  background: transparent;
   border: none;
-  color: var(--text-muted);
   cursor: pointer;
+  font-size: var(--font-size-xs);
   opacity: 0;
-  transition: opacity 0.2s;
-  font-size: 0.875rem;
+  transition: opacity var(--transition-fast);
 }
 
-.message:hover .copy-link {
-  opacity: 1;
+.human-message:hover .copy-link-inline {
+  opacity: 0.5;
 }
 
-.copy-link:hover {
-  color: var(--accent);
+.copy-link-inline:hover {
+  opacity: 1 !important;
 }
 
-.message.human .message-content {
-  color: var(--text-bright);
-  white-space: pre-wrap;
+/* ========== Assistant Group ========== */
+.assistant-group {
+  display: flex;
+  gap: var(--space-3);
 }
 
-/* Assistant messages */
-.message.assistant {
-  padding: 0.5rem 0 0.5rem 1rem;
-  border-left: 1px solid var(--border);
+.assistant-indicator {
+  flex-shrink: 0;
+  width: 20px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-1);
+  padding-top: 4px;
 }
 
-.message.assistant .message-content {
-  color: var(--text);
+.indicator-icon {
+  color: var(--claude-accent);
+  font-size: 8px;
 }
 
-.message.assistant .message-content p {
-  margin-bottom: 0.75rem;
+.indicator-text {
+  writing-mode: vertical-rl;
+  text-orientation: mixed;
+  font-size: 9px;
+  color: var(--text-muted);
+  letter-spacing: 1px;
+  text-transform: uppercase;
 }
 
-.message.assistant .message-content p:last-child {
+.assistant-content {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding-left: var(--space-3);
+  border-left: 1px solid var(--border-subtle);
+}
+
+/* ========== Assistant Text ========== */
+.assistant-text {
+  color: var(--text-primary);
+  line-height: 1.7;
+}
+
+.assistant-text p {
+  margin-bottom: var(--space-3);
+}
+
+.assistant-text p:last-child {
   margin-bottom: 0;
 }
 
-/* Tool calls */
-.tool-box {
-  background: var(--bg-tertiary);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  overflow: hidden;
+.assistant-text .code-block {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  padding: var(--space-3);
+  margin: var(--space-3) 0;
+  overflow-x: auto;
+  font-size: var(--font-size-sm);
 }
 
-.tool-header {
+.assistant-text .code-block code {
+  color: var(--text-primary);
+}
+
+.assistant-text .inline-code {
+  background: var(--bg-tertiary);
+  padding: 2px 6px;
+  border-radius: 3px;
+  font-size: 0.9em;
+  color: var(--accent-orange);
+}
+
+/* ========== Tool Call ========== */
+.tool-call {
   display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  padding: 0.5rem 0.75rem;
-  background: var(--bg-secondary);
-  border-bottom: 1px solid var(--border);
+  align-items: baseline;
+  gap: var(--space-2);
+  padding: var(--space-2) 0;
 }
 
 .tool-icon {
-  font-size: 0.875rem;
+  color: var(--tool-accent);
+  font-weight: 700;
+  font-size: 14px;
 }
 
 .tool-name {
-  font-weight: 500;
-  color: var(--purple);
-  font-size: 0.875rem;
+  color: var(--tool-accent);
+  font-weight: 600;
+  font-size: var(--font-size-sm);
 }
 
 .tool-summary {
-  padding: 0.5rem 0.75rem;
-  font-family: var(--font-mono);
-  font-size: 0.875rem;
-  color: var(--text);
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
-/* Tool results */
-.message.tool-result {
-  margin-left: 1rem;
-}
-
-.tool-output {
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: 4px;
+/* ========== Tool Result ========== */
+.tool-result {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
   overflow: hidden;
 }
 
-.output-content {
-  padding: 0.75rem;
-  font-family: var(--font-mono);
-  font-size: 0.8125rem;
+.tool-result.error {
+  border-color: rgba(224, 108, 117, 0.3);
+}
+
+.tool-result.error .output-pre {
+  color: var(--error-accent);
+}
+
+.result-content {
+  max-height: 400px;
+  overflow: auto;
+}
+
+.tool-result.collapsed .result-content {
+  max-height: 200px;
+  overflow: hidden;
+}
+
+.output-pre {
+  margin: 0;
+  padding: var(--space-3);
+  font-size: var(--font-size-sm);
   line-height: 1.5;
   white-space: pre-wrap;
   word-break: break-word;
-  color: var(--text-muted);
-  margin: 0;
-  max-height: 400px;
-  overflow-y: auto;
+  color: var(--text-secondary);
 }
 
-.message.tool-result.error .output-content {
-  color: var(--red);
-}
-
-.output-expand {
-  border-top: 1px solid var(--border);
-  padding: 0.5rem;
+.result-expand {
+  border-top: 1px solid var(--border-subtle);
+  padding: var(--space-2);
   text-align: center;
 }
 
 .expand-btn {
-  background: none;
+  background: transparent;
   border: none;
-  color: var(--accent);
-  cursor: pointer;
+  color: var(--accent-blue);
   font-family: var(--font-mono);
-  font-size: 0.8125rem;
+  font-size: var(--font-size-xs);
+  cursor: pointer;
 }
 
 .expand-btn:hover {
   text-decoration: underline;
 }
 
-/* Inline tool calls */
-.tool-call.inline {
-  display: inline-block;
-  background: var(--bg-tertiary);
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  margin: 0.5rem 0;
-}
-
-.tool-call.inline .tool-header {
-  padding: 0.25rem 0.5rem;
-}
-
-.tool-call.inline .tool-summary {
-  padding: 0.25rem 0.5rem;
-}
-
-/* Password prompt */
-.password-prompt {
+/* ========== Footer ========== */
+.viewer-footer {
+  position: sticky;
+  bottom: 0;
   display: flex;
   align-items: center;
-  justify-content: center;
-  min-height: 100vh;
-  padding: 2rem;
-}
-
-.prompt-box {
+  justify-content: space-between;
+  padding: var(--space-3) var(--space-5);
   background: var(--bg-secondary);
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  padding: 2rem;
-  text-align: center;
-  max-width: 400px;
-  width: 100%;
-}
-
-.prompt-icon {
-  font-size: 3rem;
-  margin-bottom: 1rem;
-}
-
-.prompt-box h2 {
-  font-family: var(--font-sans);
-  font-size: 1.25rem;
-  color: var(--text-bright);
-  margin-bottom: 0.5rem;
-}
-
-.prompt-box p {
+  border-top: 1px solid var(--border-subtle);
+  font-size: var(--font-size-xs);
   color: var(--text-muted);
-  margin-bottom: 1.5rem;
 }
 
-.prompt-box form {
+.footer-hint {
   display: flex;
-  flex-direction: column;
-  gap: 1rem;
+  align-items: center;
+  gap: var(--space-2);
 }
 
-.prompt-box input {
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  padding: 0.75rem 1rem;
-  font-family: var(--font-mono);
-  font-size: 1rem;
-  color: var(--text);
+.footer-hint kbd {
+  background: var(--bg-tertiary);
+  padding: 2px 5px;
+  border-radius: 3px;
+  font-size: 10px;
 }
 
-.prompt-box input:focus {
-  outline: none;
-  border-color: var(--accent);
+.footer-hint .sep {
+  opacity: 0.3;
 }
 
-.prompt-box button {
-  background: var(--accent);
-  border: none;
-  border-radius: 6px;
-  padding: 0.75rem 1rem;
-  font-family: var(--font-sans);
-  font-size: 1rem;
-  font-weight: 500;
-  color: white;
-  cursor: pointer;
-  transition: background 0.2s;
+.footer-brand {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  color: var(--text-muted);
+  text-decoration: none;
+  transition: color var(--transition-fast);
 }
 
-.prompt-box button:hover {
-  background: var(--accent-muted);
+.footer-brand:hover {
+  color: var(--text-secondary);
 }
 
-.error {
-  color: var(--red);
-  font-size: 0.875rem;
-  margin-top: 1rem;
+.brand-icon {
+  color: var(--accent-purple);
 }
 
-/* Scrollbar */
+/* ========== Search Highlight ========== */
+.search-match {
+  background: rgba(230, 192, 123, 0.3);
+  border-radius: 2px;
+}
+
+.search-match.current {
+  background: rgba(230, 192, 123, 0.6);
+}
+
+/* ========== Deep Link Highlight ========== */
+.message:target,
+.tool-call:target,
+.tool-result:target {
+  animation: highlight 2s ease;
+}
+
+@keyframes highlight {
+  0%, 30% { background: rgba(94, 159, 215, 0.15); }
+  100% { background: transparent; }
+}
+
+/* ========== Scrollbar ========== */
 ::-webkit-scrollbar {
   width: 8px;
   height: 8px;
 }
 
 ::-webkit-scrollbar-track {
-  background: var(--bg);
+  background: var(--bg-secondary);
 }
 
 ::-webkit-scrollbar-thumb {
-  background: var(--border);
+  background: var(--border-medium);
   border-radius: 4px;
 }
 
@@ -701,222 +1199,327 @@ header {
   background: var(--text-muted);
 }
 
-/* Responsive */
+/* ========== Responsive ========== */
 @media (max-width: 640px) {
-  #app {
-    padding: 1rem;
+  .viewer-header {
+    padding: var(--space-3);
   }
 
-  .session-meta {
-    flex-wrap: wrap;
+  .session-container {
+    padding: var(--space-3);
+  }
+
+  .session-title {
+    font-size: var(--font-size-base);
+  }
+
+  .footer-hint {
+    display: none;
+  }
+
+  .assistant-indicator {
+    display: none;
+  }
+
+  .assistant-content {
+    padding-left: 0;
+    border-left: none;
   }
 }
+
+/* ========== Syntax Highlighting (Basic) ========== */
+.language-javascript .keyword,
+.language-typescript .keyword { color: var(--accent-purple); }
+.language-javascript .string,
+.language-typescript .string { color: var(--accent-green); }
+.language-javascript .number,
+.language-typescript .number { color: var(--accent-orange); }
+.language-javascript .comment,
+.language-typescript .comment { color: var(--text-muted); }
 `;
 
-// JavaScript for the viewer (non-encrypted version)
+// ============================================================================
+// Viewer JavaScript
+// ============================================================================
+
 const VIEWER_JS = `
-document.addEventListener('DOMContentLoaded', function() {
-  // Handle copy link buttons
-  document.querySelectorAll('.copy-link').forEach(btn => {
-    btn.addEventListener('click', function(e) {
-      e.preventDefault();
-      const msg = this.closest('.message');
-      const url = window.location.href.split('#')[0] + '#' + msg.id;
-      navigator.clipboard.writeText(url).then(() => {
-        this.textContent = '✓';
-        setTimeout(() => { this.textContent = '🔗'; }, 1500);
-      });
-    });
-  });
-
-  // Handle expand buttons
-  document.querySelectorAll('.expand-btn').forEach(btn => {
-    btn.addEventListener('click', function() {
-      const container = this.closest('.output-expand');
-      const fullContent = container.dataset.full;
-      const outputContent = container.previousElementSibling;
-      outputContent.textContent = fullContent;
-      container.remove();
-    });
-  });
-
-  // Handle deep links
-  if (window.location.hash) {
-    const target = document.querySelector(window.location.hash);
-    if (target) {
-      target.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      target.classList.add('highlighted');
-    }
-  }
-
-  // Keyboard navigation
-  let currentIndex = -1;
-  const messages = document.querySelectorAll('.message');
-
-  document.addEventListener('keydown', function(e) {
-    if (e.key === 'j' || e.key === 'ArrowDown') {
-      e.preventDefault();
-      currentIndex = Math.min(currentIndex + 1, messages.length - 1);
-      messages[currentIndex]?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    } else if (e.key === 'k' || e.key === 'ArrowUp') {
-      e.preventDefault();
-      currentIndex = Math.max(currentIndex - 1, 0);
-      messages[currentIndex]?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    } else if (e.key === 'y') {
-      // Copy current message link
-      if (currentIndex >= 0) {
-        const msg = messages[currentIndex];
-        const url = window.location.href.split('#')[0] + '#' + msg.id;
-        navigator.clipboard.writeText(url);
-      }
-    }
-  });
-});
-`;
-
-// JavaScript for encrypted viewer
-const VIEWER_JS_ENCRYPTED = `
-document.addEventListener('DOMContentLoaded', function() {
+(function() {
   const sessionData = JSON.parse(document.getElementById('session-data').textContent);
-  const passwordPrompt = document.getElementById('password-prompt');
-  const passwordForm = document.getElementById('password-form');
-  const passwordInput = document.getElementById('password-input');
-  const passwordError = document.getElementById('password-error');
-  const viewer = document.getElementById('viewer');
-  const messagesContainer = document.getElementById('messages');
 
-  // Check if key is in URL fragment (public session)
-  const hash = window.location.hash;
-  const keyMatch = hash.match(/key=([^&]+)/);
-
-  if (keyMatch && !sessionData.salt) {
-    // Public session with key in URL
-    const key = keyMatch[1];
-    decryptAndRender(key);
-  } else if (sessionData.salt) {
-    // Private session - show password prompt
-    passwordPrompt.classList.remove('hidden');
-    passwordForm.addEventListener('submit', async function(e) {
-      e.preventDefault();
-      const password = passwordInput.value;
-      if (!password) return;
-
-      passwordError.classList.add('hidden');
-      try {
-        await decryptAndRender(password);
-      } catch (error) {
-        passwordError.textContent = 'Incorrect password. Please try again.';
-        passwordError.classList.remove('hidden');
-        passwordInput.value = '';
-        passwordInput.focus();
-      }
-    });
-  }
-
-  async function decryptAndRender(keyOrPassword) {
-    const session = await decryptSession(
-      sessionData.encryptedBlob,
-      sessionData.iv,
-      keyOrPassword,
-      sessionData.salt
-    );
-
-    passwordPrompt?.classList.add('hidden');
-    viewer.classList.remove('hidden');
-
-    // Render messages
-    messagesContainer.innerHTML = session.messages.map((msg, index) => renderMessage(msg, index)).join('');
-
-    // Initialize viewer interactions
+  // Handle encrypted sessions
+  if (sessionData.encrypted) {
+    initEncryptedViewer(sessionData);
+  } else {
     initViewer();
   }
 
-  function renderMessage(message, index) {
-    switch (message.type) {
-      case 'human':
-        return \`
-          <div class="message human" id="\${message.id}" data-index="\${index}">
-            <div class="message-header">
-              <span class="prompt-char">❯</span>
-              <span class="message-time">\${formatTime(message.timestamp)}</span>
-              <button class="copy-link" title="Copy link">🔗</button>
-            </div>
-            <div class="message-content">\${escapeHtml(message.content)}</div>
-          </div>\`;
-      case 'assistant':
-        return \`
-          <div class="message assistant" id="\${message.id}" data-index="\${index}">
-            <div class="message-content">\${formatContent(message.content)}</div>
-          </div>\`;
-      case 'tool_call':
-        return \`
-          <div class="message tool-call" id="\${message.id}" data-index="\${index}">
-            <div class="tool-box">
-              <div class="tool-header">
-                <span class="tool-icon">\${getToolIcon(message.toolName)}</span>
-                <span class="tool-name">\${escapeHtml(message.toolName || 'Tool')}</span>
-              </div>
-              <div class="tool-summary">\${escapeHtml(message.content)}</div>
-            </div>
-          </div>\`;
-      case 'tool_result':
-        const output = message.toolOutput || message.content || '';
-        return \`
-          <div class="message tool-result \${message.isError ? 'error' : ''}" id="\${message.id}" data-index="\${index}">
-            <div class="tool-output">
-              <pre class="output-content">\${escapeHtml(output)}</pre>
-            </div>
-          </div>\`;
-      default:
-        return '';
+  function initEncryptedViewer(data) {
+    const passwordPrompt = document.getElementById('password-prompt');
+    const viewer = document.getElementById('viewer');
+    const hash = window.location.hash;
+
+    // Check for key in URL fragment (public session)
+    const keyMatch = hash.match(/key=([^&]+)/);
+
+    if (keyMatch && !data.salt) {
+      // Public session with key in URL
+      decryptAndRender(keyMatch[1], data);
+    } else if (data.salt) {
+      // Private session - password form is already visible
+      document.getElementById('password-form').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const password = document.getElementById('password-input').value;
+        const errorEl = document.getElementById('password-error');
+
+        try {
+          await decryptAndRender(password, data);
+        } catch (err) {
+          errorEl.classList.remove('hidden');
+          document.getElementById('password-input').value = '';
+          document.getElementById('password-input').focus();
+        }
+      });
     }
   }
 
-  function formatTime(timestamp) {
-    try {
-      return new Date(timestamp).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
-    } catch { return ''; }
+  async function decryptAndRender(keyOrPassword, data) {
+    const session = await decryptSession(
+      data.encryptedBlob,
+      data.iv,
+      keyOrPassword,
+      data.salt
+    );
+
+    document.getElementById('password-prompt').classList.add('hidden');
+    document.getElementById('viewer').classList.remove('hidden');
+
+    // Render messages
+    document.getElementById('messages').innerHTML = renderMessages(session.messages);
+    initViewer();
   }
 
-  function formatContent(content) {
-    return content.split('\\n\\n').map(p => '<p>' + escapeHtml(p).replace(/\\n/g, '<br>') + '</p>').join('');
+  function renderMessages(messages) {
+    const groups = groupMessages(messages);
+    return groups.map((group, idx) => renderGroup(group, idx)).join('');
   }
 
-  function escapeHtml(str) {
-    const div = document.createElement('div');
-    div.textContent = str;
-    return div.innerHTML;
+  function groupMessages(messages) {
+    const groups = [];
+    let current = null;
+
+    for (const msg of messages) {
+      const type = msg.type === 'human' ? 'human' : 'assistant';
+      if (!current || current.type !== type) {
+        if (current) groups.push(current);
+        current = { type, messages: [] };
+      }
+      current.messages.push(msg);
+    }
+    if (current) groups.push(current);
+    return groups;
+  }
+
+  function renderGroup(group, idx) {
+    if (group.type === 'human') {
+      return group.messages.map(renderHuman).join('');
+    }
+    return \`
+      <div class="assistant-group" data-group="\${idx}">
+        <div class="assistant-indicator">
+          <span class="indicator-icon">●</span>
+          <span class="indicator-text">Claude</span>
+        </div>
+        <div class="assistant-content">
+          \${group.messages.map(renderAssistantItem).join('')}
+        </div>
+      </div>\`;
+  }
+
+  function renderHuman(msg) {
+    return \`
+      <div class="message human-message" id="\${msg.id}">
+        <div class="message-gutter"><span class="human-prompt">❯</span></div>
+        <div class="message-body">
+          <div class="human-content">\${formatText(msg.content)}</div>
+        </div>
+      </div>\`;
+  }
+
+  function renderAssistantItem(msg) {
+    if (msg.type === 'assistant') {
+      return \`<div class="assistant-text" id="\${msg.id}">\${formatText(msg.content)}</div>\`;
+    }
+    if (msg.type === 'tool_call') {
+      return \`
+        <div class="tool-call" id="\${msg.id}">
+          <span class="tool-icon">\${getToolIcon(msg.toolName)}</span>
+          <span class="tool-name">\${esc(msg.toolName || 'Tool')}</span>
+          <span class="tool-summary">\${esc(msg.content || '')}</span>
+        </div>\`;
+    }
+    if (msg.type === 'tool_result') {
+      return \`
+        <div class="tool-result" id="\${msg.id}">
+          <div class="result-content">
+            <pre class="output-pre"><code>\${esc(msg.toolOutput || msg.content || '')}</code></pre>
+          </div>
+        </div>\`;
+    }
+    return '';
+  }
+
+  function formatText(text) {
+    if (!text) return '';
+    return esc(text).split('\\n\\n').map(p => '<p>' + p.replace(/\\n/g, '<br>') + '</p>').join('');
   }
 
   function getToolIcon(name) {
-    const icons = { Bash: '⌘', Read: '📄', Write: '✏️', Edit: '📝', Glob: '🔍', Grep: '🔎', Task: '🤖' };
-    return icons[name] || '⚙️';
+    const icons = { Bash: '$', Read: '◇', Write: '◆', Edit: '✎', Glob: '⊛', Grep: '⊙', Task: '⊳' };
+    return icons[name] || '⊡';
+  }
+
+  function esc(str) {
+    const div = document.createElement('div');
+    div.textContent = str || '';
+    return div.innerHTML;
   }
 
   function initViewer() {
-    // Copy link buttons
-    document.querySelectorAll('.copy-link').forEach(btn => {
-      btn.addEventListener('click', function(e) {
-        e.preventDefault();
-        const msg = this.closest('.message');
-        const baseUrl = window.location.href.split('#')[0];
-        const url = baseUrl + '#' + msg.id;
-        navigator.clipboard.writeText(url).then(() => {
-          this.textContent = '✓';
-          setTimeout(() => { this.textContent = '🔗'; }, 1500);
-        });
+    // Collapse/expand buttons
+    document.getElementById('collapse-all-btn')?.addEventListener('click', () => {
+      document.querySelectorAll('.tool-result').forEach(el => el.classList.add('collapsed'));
+    });
+
+    document.getElementById('expand-all-btn')?.addEventListener('click', () => {
+      document.querySelectorAll('.tool-result').forEach(el => el.classList.remove('collapsed'));
+    });
+
+    // Expand buttons in results
+    document.querySelectorAll('.expand-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const result = btn.closest('.tool-result');
+        result.classList.remove('collapsed');
+        const fullContent = btn.closest('.result-expand').dataset.full;
+        if (fullContent) {
+          result.querySelector('code').textContent = fullContent;
+        }
+        btn.closest('.result-expand').remove();
       });
     });
 
-    // Deep links
-    const targetId = window.location.hash.replace(/key=[^&]+&?/, '').replace('#', '');
-    if (targetId) {
-      const target = document.getElementById(targetId);
+    // Copy link button
+    document.getElementById('copy-link-btn')?.addEventListener('click', () => {
+      navigator.clipboard.writeText(window.location.href);
+    });
+
+    // Inline copy link buttons
+    document.querySelectorAll('.copy-link-inline').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const id = btn.dataset.id;
+        const url = window.location.href.split('#')[0] + '#' + id;
+        navigator.clipboard.writeText(url);
+        btn.textContent = '✓';
+        setTimeout(() => btn.textContent = '🔗', 1500);
+      });
+    });
+
+    // Search
+    const searchOverlay = document.getElementById('search-overlay');
+    const searchInput = document.getElementById('search-input');
+    let searchMatches = [];
+    let currentMatch = -1;
+
+    document.addEventListener('keydown', (e) => {
+      // Cmd/Ctrl + F
+      if ((e.metaKey || e.ctrlKey) && e.key === 'f') {
+        e.preventDefault();
+        searchOverlay.classList.remove('hidden');
+        searchInput.focus();
+        searchInput.select();
+      }
+      // Escape
+      if (e.key === 'Escape') {
+        searchOverlay.classList.add('hidden');
+        clearSearch();
+      }
+      // C to collapse all
+      if (e.key === 'c' && !e.metaKey && !e.ctrlKey && document.activeElement.tagName !== 'INPUT') {
+        document.querySelectorAll('.tool-result').forEach(el => el.classList.add('collapsed'));
+      }
+      // E to expand all
+      if (e.key === 'e' && !e.metaKey && !e.ctrlKey && document.activeElement.tagName !== 'INPUT') {
+        document.querySelectorAll('.tool-result').forEach(el => el.classList.remove('collapsed'));
+      }
+    });
+
+    searchInput?.addEventListener('input', () => {
+      performSearch(searchInput.value);
+    });
+
+    document.getElementById('search-close')?.addEventListener('click', () => {
+      searchOverlay.classList.add('hidden');
+      clearSearch();
+    });
+
+    document.getElementById('search-next')?.addEventListener('click', () => navigateSearch(1));
+    document.getElementById('search-prev')?.addEventListener('click', () => navigateSearch(-1));
+
+    function performSearch(query) {
+      clearSearch();
+      if (!query || query.length < 2) {
+        document.getElementById('search-count').textContent = '';
+        return;
+      }
+
+      const regex = new RegExp('(' + query.replace(/[.*+?^\${}()|[\\]\\\\]/g, '\\\\$&') + ')', 'gi');
+      const walker = document.createTreeWalker(
+        document.getElementById('messages'),
+        NodeFilter.SHOW_TEXT,
+        null,
+        false
+      );
+
+      const matches = [];
+      while (walker.nextNode()) {
+        const node = walker.currentNode;
+        if (node.textContent.match(regex)) {
+          const span = document.createElement('span');
+          span.innerHTML = node.textContent.replace(regex, '<mark class="search-match">$1</mark>');
+          node.parentNode.replaceChild(span, node);
+          span.querySelectorAll('.search-match').forEach(m => matches.push(m));
+        }
+      }
+
+      searchMatches = matches;
+      currentMatch = -1;
+      document.getElementById('search-count').textContent = matches.length + ' found';
+      if (matches.length) navigateSearch(1);
+    }
+
+    function navigateSearch(dir) {
+      if (!searchMatches.length) return;
+      if (currentMatch >= 0) searchMatches[currentMatch].classList.remove('current');
+      currentMatch = (currentMatch + dir + searchMatches.length) % searchMatches.length;
+      searchMatches[currentMatch].classList.add('current');
+      searchMatches[currentMatch].scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+
+    function clearSearch() {
+      document.querySelectorAll('.search-match').forEach(el => {
+        const text = el.textContent;
+        el.replaceWith(text);
+      });
+      searchMatches = [];
+      currentMatch = -1;
+    }
+
+    // Handle deep link on load
+    if (window.location.hash && !window.location.hash.includes('key=')) {
+      const target = document.querySelector(window.location.hash);
       if (target) {
-        target.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        target.classList.add('highlighted');
+        setTimeout(() => target.scrollIntoView({ behavior: 'smooth', block: 'center' }), 100);
       }
     }
   }
-});
+})();
 `;
