@@ -98,7 +98,7 @@ export function renderSessionToHtml(session: ParsedSession, options?: RenderOpti
     </div>
   </div>
 
-  <script id="session-data" type="application/json">${JSON.stringify(sessionDataForViewer)}</script>
+  <script id="session-data" type="application/json">${escapeJsonForHtml(JSON.stringify(sessionDataForViewer))}</script>
   ${encrypted ? `<script>${BROWSER_CRYPTO_CODE}</script>` : ''}
   <script>${VIEWER_JS}</script>
 </body>
@@ -363,28 +363,62 @@ function detectLanguage(content: string): string {
 }
 
 function formatContent(content: string): string {
-  // Handle code blocks with syntax highlighting hints
-  let formatted = content;
+  if (!content) return '';
 
-  // Replace ```language blocks
-  formatted = formatted.replace(/```(\w+)?\n([\s\S]*?)```/g, (_, lang, code) => {
-    const language = lang || 'plaintext';
-    return `<pre class="code-block"><code class="language-${language}">${escapeHtml(code.trim())}</code></pre>`;
+  // First escape all HTML to prevent injection
+  let escaped = escapeHtml(content);
+
+  // Replace code blocks (``` blocks) - these were escaped, so match escaped backticks
+  // Actually, since we escaped first, we need to work with the escaped version
+  // Let's do this differently - process before escaping for code blocks
+
+  // Start over with a safer approach
+  let result = '';
+  let remaining = content;
+
+  // Extract code blocks first
+  const codeBlockRegex = /```(\w+)?\n([\s\S]*?)```/g;
+  let lastIndex = 0;
+  let match;
+
+  while ((match = codeBlockRegex.exec(content)) !== null) {
+    // Add text before this code block (escaped)
+    const textBefore = content.slice(lastIndex, match.index);
+    result += formatTextContent(textBefore);
+
+    // Add the code block
+    const language = match[1] || 'plaintext';
+    const code = match[2] || '';
+    result += `<pre class="code-block"><code class="language-${language}">${escapeHtml(code.trim())}</code></pre>`;
+
+    lastIndex = match.index + match[0].length;
+  }
+
+  // Add remaining text after last code block
+  result += formatTextContent(content.slice(lastIndex));
+
+  return result;
+}
+
+function formatTextContent(text: string): string {
+  if (!text) return '';
+
+  let escaped = escapeHtml(text);
+
+  // Replace inline code (single backticks) - backticks are not escaped by escapeHtml
+  escaped = escaped.replace(/`([^`]+)`/g, (_, code) => {
+    return `<code class="inline-code">${code}</code>`;
   });
 
-  // Replace inline code
-  formatted = formatted.replace(/`([^`]+)`/g, '<code class="inline-code">$1</code>');
-
-  // Replace paragraphs
-  formatted = formatted
+  // Split into paragraphs and add breaks
+  return escaped
     .split('\n\n')
     .map(para => {
-      if (para.startsWith('<pre') || para.startsWith('<code')) return para;
+      if (!para.trim()) return '';
       return `<p>${para.replace(/\n/g, '<br>')}</p>`;
     })
+    .filter(p => p)
     .join('\n');
-
-  return formatted;
 }
 
 function formatDuration(seconds: number): string {
@@ -429,6 +463,14 @@ function escapeAttr(str: string): string {
 function truncate(str: string, max: number): string {
   if (str.length <= max) return str;
   return str.slice(0, max - 1) + '…';
+}
+
+function escapeJsonForHtml(jsonStr: string): string {
+  // Escape sequences that could break out of script tags
+  return jsonStr
+    .replace(/</g, '\\u003c')
+    .replace(/>/g, '\\u003e')
+    .replace(/&/g, '\\u0026');
 }
 
 // ============================================================================
@@ -1394,7 +1436,7 @@ const VIEWER_JS = `
       document.querySelectorAll('.tool-result').forEach(el => el.classList.remove('collapsed'));
     });
 
-    // Expand buttons in results
+    // Expand buttons for tool results
     document.querySelectorAll('.expand-btn').forEach(btn => {
       btn.addEventListener('click', () => {
         const result = btn.closest('.tool-result');
@@ -1404,6 +1446,21 @@ const VIEWER_JS = `
           result.querySelector('code').textContent = fullContent;
         }
         btn.closest('.result-expand').remove();
+      });
+    });
+
+    // Expand toggle for human messages
+    document.querySelectorAll('.expand-toggle').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const messageBody = btn.closest('.message-body');
+        const content = messageBody?.querySelector('.human-content');
+        if (content && content.classList.contains('collapsed')) {
+          content.classList.remove('collapsed');
+          btn.textContent = 'Show less ↑';
+        } else if (content) {
+          content.classList.add('collapsed');
+          btn.textContent = 'Show more ↓';
+        }
       });
     });
 

@@ -91,7 +91,7 @@ export async function getSession(sessionId: string): Promise<LocalSession | null
 
   // Try partial match (prefix)
   const matches = sessions.filter(s => s.id.startsWith(sessionId));
-  if (matches.length === 1) return matches[0];
+  if (matches.length === 1) return matches[0] ?? null;
   if (matches.length > 1) {
     throw new Error(`Ambiguous session ID "${sessionId}" matches ${matches.length} sessions`);
   }
@@ -99,7 +99,7 @@ export async function getSession(sessionId: string): Promise<LocalSession | null
   // Try index (1-based)
   const index = parseInt(sessionId, 10);
   if (!isNaN(index) && index >= 1 && index <= sessions.length) {
-    return sessions[index - 1];
+    return sessions[index - 1] ?? null;
   }
 
   return null;

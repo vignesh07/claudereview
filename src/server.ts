@@ -80,7 +80,7 @@ app.post('/api/upload', async (c) => {
   } catch (error) {
     console.error('Upload error:', error);
     if (error instanceof z.ZodError) {
-      return c.json({ error: 'Invalid request body', details: error.errors }, 400);
+      return c.json({ error: 'Invalid request body', details: error.issues }, 400);
     }
     return c.json({ error: 'Upload failed' }, 500);
   }

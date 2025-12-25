@@ -132,11 +132,12 @@ function processMessages(rawMessages: RawMessage[]): ParsedMessage[] {
       // Only add if there's actual content
       if (parts.length > 0) {
         // If only text, simplify
-        if (parts.length === 1 && parts[0].type === 'text') {
+        const firstPart = parts[0];
+        if (parts.length === 1 && firstPart && firstPart.type === 'text') {
           parsed.push({
             id: `msg-${messageIndex++}`,
             type: 'assistant',
-            content: parts[0].content || '',
+            content: firstPart.content || '',
             timestamp,
           });
         } else if (parts.every(p => p.type === 'tool_call')) {
@@ -271,7 +272,7 @@ function computeMetadata(
  */
 function extractSessionId(filePath: string): string {
   const match = filePath.match(/([a-f0-9-]{36}|agent-[a-f0-9]+)\.jsonl$/);
-  return match ? match[1] : 'unknown';
+  return match?.[1] ?? 'unknown';
 }
 
 /**
