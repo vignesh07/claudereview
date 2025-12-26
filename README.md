@@ -42,6 +42,39 @@ ccshare export --last -o session.html
 - **Deep Linking**: Link directly to specific messages.
 - **Self-Contained**: Exported HTML works offline.
 
+## Claude Code Integration
+
+### MCP Server
+
+Share sessions directly from Claude by adding to `~/.claude/settings.json`:
+
+```json
+{
+  "mcpServers": {
+    "claudereview": {
+      "command": "bunx",
+      "args": ["claudereview-mcp"]
+    }
+  }
+}
+```
+
+Then just ask Claude: "Share this session" or "List my recent sessions".
+
+### Slash Command
+
+Add a quick slash command by creating `~/.claude/commands/share.md`:
+
+```markdown
+Share this Claude Code session using claudereview.
+
+Run: bunx claudereview share --last
+
+Return the URL to me.
+```
+
+Then type `/share` in any Claude Code session.
+
 ## How It Works
 
 ### Public Shares

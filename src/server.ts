@@ -1066,6 +1066,38 @@ function generateLandingHtml(user: User | null): string {
 <span class="cmd">ccshare preview --last</span></pre>
     </section>
 
+    <section class="integration-section">
+      <h2>Claude Code integration</h2>
+      <p class="subtitle">Share sessions without leaving Claude</p>
+
+      <div class="integration-grid">
+        <div class="integration-card">
+          <h3>MCP Server</h3>
+          <p>Share sessions directly from Claude. Add to <code>~/.claude/settings.json</code>:</p>
+          <pre class="integration-code">{
+  "mcpServers": {
+    "claudereview": {
+      "command": "bunx",
+      "args": ["claudereview-mcp"]
+    }
+  }
+}</pre>
+          <p class="integration-tip">Then just ask Claude: "Share this session"</p>
+        </div>
+
+        <div class="integration-card">
+          <h3>Slash Command</h3>
+          <p>Quick shortcut. Create <code>~/.claude/commands/share.md</code>:</p>
+          <pre class="integration-code">Share this Claude Code session.
+
+Run: bunx claudereview share --last
+
+Return the URL to me.</pre>
+          <p class="integration-tip">Then type <code>/share</code> in any session</p>
+        </div>
+      </div>
+    </section>
+
     <footer>
       <div class="footer-links">
         <a href="https://github.com/vignesh07/claudereview">GitHub</a>
@@ -2738,6 +2770,87 @@ header.scrolled {
 
 .usage-code .comment { color: #8b949e; }
 .usage-code .cmd { color: #79c0ff; }
+
+/* Integration Section */
+.integration-section {
+  padding: 4rem 0;
+  border-top: 1px solid var(--border);
+}
+
+.integration-section h2 {
+  font-size: 1.75rem;
+  font-weight: 700;
+  color: var(--text-bright);
+  text-align: center;
+  margin-bottom: 0.5rem;
+  letter-spacing: -0.02em;
+}
+
+.integration-section .subtitle {
+  color: var(--text-muted);
+  text-align: center;
+  margin-bottom: 2.5rem;
+}
+
+.integration-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 1.5rem;
+}
+
+.integration-card {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 1.5rem;
+}
+
+.integration-card h3 {
+  font-size: 1.125rem;
+  font-weight: 600;
+  color: var(--text-bright);
+  margin-bottom: 0.75rem;
+}
+
+.integration-card p {
+  color: var(--text-muted);
+  font-size: 0.9rem;
+  margin-bottom: 1rem;
+}
+
+.integration-card code {
+  background: var(--bg-tertiary);
+  padding: 0.125rem 0.375rem;
+  border-radius: 4px;
+  font-family: var(--font-mono);
+  font-size: 0.85em;
+  color: var(--text);
+}
+
+.integration-code {
+  background: #0d1117;
+  border-radius: 8px;
+  padding: 1rem;
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  line-height: 1.5;
+  overflow-x: auto;
+  color: #e6edf3;
+  border: 1px solid #30363d;
+  margin-bottom: 1rem;
+  white-space: pre;
+}
+
+.integration-tip {
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  font-style: italic;
+  margin-bottom: 0;
+}
+
+.integration-tip code {
+  font-style: normal;
+}
 
 /* Footer */
 footer {
