@@ -2296,12 +2296,61 @@ function generateAdminHtml(): string {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Admin Dashboard - claudereview</title>
+  <title>Admin - claudereview</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>◈</text></svg>">
-  <style>${ADMIN_CSS}</style>
-  <!-- Leaflet for maps -->
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <style>${LANDING_CSS}
+    .admin-container { max-width: 1000px; margin: 0 auto; padding: 2rem; }
+    .admin-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem; padding-bottom: 1rem; border-bottom: 1px solid var(--border); }
+    .admin-badge { background: var(--accent-soft); color: var(--accent); font-size: 0.75rem; font-weight: 600; padding: 0.25rem 0.75rem; border-radius: 100px; margin-left: 0.75rem; }
+    .admin-actions { display: flex; gap: 0.75rem; align-items: center; }
+    .logout-btn { background: transparent; border: 1px solid var(--border); padding: 0.5rem 1rem; border-radius: 6px; color: var(--text-muted); cursor: pointer; font-size: 0.875rem; }
+    .logout-btn:hover { border-color: var(--text-muted); color: var(--text); }
+
+    .login-screen { min-height: 100vh; display: flex; align-items: center; justify-content: center; }
+    .login-box { text-align: center; }
+    .login-box .logo { margin-bottom: 2rem; }
+    .login-box form { display: flex; flex-direction: column; gap: 1rem; }
+    .login-box input { padding: 0.75rem 1rem; border: 1px solid var(--border); border-radius: 8px; font-size: 1rem; background: var(--bg-secondary); color: var(--text); }
+    .login-box button { padding: 0.75rem 1.5rem; background: var(--accent); color: white; border: none; border-radius: 8px; font-size: 1rem; cursor: pointer; }
+    .login-box .error { color: #e74c3c; margin-top: 1rem; font-size: 0.875rem; }
+
+    .period-toggle { display: flex; gap: 0.5rem; margin-bottom: 1.5rem; }
+    .period-btn { background: transparent; border: 1px solid var(--border); padding: 0.5rem 1rem; border-radius: 6px; color: var(--text-muted); cursor: pointer; font-size: 0.875rem; }
+    .period-btn:hover { border-color: var(--text-muted); }
+    .period-btn.active { background: var(--accent); color: white; border-color: var(--accent); }
+
+    .stats-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1rem; margin-bottom: 2rem; }
+    .stat-card { background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 12px; padding: 1.25rem; }
+    .stat-value { font-size: 2rem; font-weight: 600; color: var(--text); margin-bottom: 0.25rem; font-family: var(--font-mono); }
+    .stat-label { font-size: 0.875rem; color: var(--text-muted); }
+
+    .section { background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 12px; padding: 1.25rem; margin-bottom: 1.5rem; }
+    .section h2 { font-size: 1rem; font-weight: 600; color: var(--text); margin-bottom: 1rem; }
+
+    .chart { display: flex; align-items: flex-end; gap: 2px; height: 120px; }
+    .bar { flex: 1; background: var(--accent); border-radius: 2px 2px 0 0; min-height: 4px; position: relative; }
+    .bar:hover { opacity: 0.8; }
+    .bar::after { content: attr(data-count); position: absolute; bottom: 100%; left: 50%; transform: translateX(-50%); font-size: 0.625rem; color: var(--text-muted); opacity: 0; transition: opacity 0.15s; white-space: nowrap; padding-bottom: 2px; }
+    .bar:hover::after { opacity: 1; }
+
+    .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; }
+
+    .data-table { width: 100%; border-collapse: collapse; font-size: 0.875rem; }
+    .data-table th { text-align: left; color: var(--text-muted); font-weight: 500; padding: 0.5rem 0; border-bottom: 1px solid var(--border); }
+    .data-table td { padding: 0.625rem 0; border-bottom: 1px solid var(--border); color: var(--text); }
+    .data-table a { color: var(--accent); text-decoration: none; }
+    .data-table a:hover { text-decoration: underline; }
+    .visibility-pill { font-size: 0.75rem; padding: 0.125rem 0.5rem; border-radius: 4px; }
+    .visibility-pill.public { background: var(--accent-soft); color: var(--accent); }
+    .visibility-pill.private { background: var(--green-soft, rgba(34, 134, 58, 0.1)); color: var(--green, #22863a); }
+    .no-data { color: var(--text-muted); font-size: 0.875rem; text-align: center; padding: 2rem; }
+
+    @media (max-width: 768px) {
+      .stats-grid { grid-template-columns: repeat(2, 1fr); }
+      .grid-2 { grid-template-columns: 1fr; }
+    }
+    .hidden { display: none !important; }
+  </style>
 </head>
 <body>
   <!-- Login prompt -->
@@ -2321,96 +2370,63 @@ function generateAdminHtml(): string {
   </div>
 
   <!-- Dashboard (hidden until authenticated) -->
-  <div id="dashboard" class="container hidden">
-    <header>
-      <div class="header-left">
+  <div id="dashboard" class="admin-container hidden">
+    <header class="admin-header">
+      <div style="display: flex; align-items: center;">
         <a href="/" class="logo">
           <span class="logo-icon">◈</span>
           <span class="logo-text">claude<span class="accent">review</span></span>
         </a>
         <span class="admin-badge">Admin</span>
       </div>
-      <div class="header-right">
+      <div class="admin-actions">
         <button class="theme-toggle" onclick="toggleTheme()" title="Toggle theme">
-          <span class="icon-sun">&#9728;</span>
-          <span class="icon-moon">&#9790;</span>
+          <span class="theme-icon">◐</span>
         </button>
         <button id="logout-btn" class="logout-btn">Logout</button>
       </div>
     </header>
 
     <main>
-      <!-- Period Toggle -->
       <div class="period-toggle">
         <button class="period-btn" data-period="7d">7 days</button>
         <button class="period-btn active" data-period="30d">30 days</button>
         <button class="period-btn" data-period="all">All time</button>
       </div>
 
-      <!-- Stats Grid -->
       <div class="stats-grid">
-        <div class="stat-card sessions">
-          <div class="stat-icon">&#9881;</div>
+        <div class="stat-card">
           <div class="stat-value" id="stat-sessions">-</div>
-          <div class="stat-label">Sessions Shared</div>
+          <div class="stat-label">Sessions</div>
         </div>
-        <div class="stat-card views">
-          <div class="stat-icon">&#128065;</div>
+        <div class="stat-card">
           <div class="stat-value" id="stat-views">-</div>
-          <div class="stat-label">Total Views</div>
+          <div class="stat-label">Views</div>
         </div>
-        <div class="stat-card users">
-          <div class="stat-icon">&#128100;</div>
+        <div class="stat-card">
           <div class="stat-value" id="stat-users">-</div>
           <div class="stat-label">Users</div>
         </div>
-        <div class="stat-card public">
-          <div class="stat-icon">&#128279;</div>
-          <div class="stat-value" id="stat-public">-</div>
-          <div class="stat-label">Public Sessions</div>
+        <div class="stat-card">
+          <div class="stat-value" id="stat-private">-</div>
+          <div class="stat-label">Private</div>
         </div>
       </div>
 
-      <!-- Charts Row -->
       <div class="grid-2">
         <section class="section">
-          <div class="section-header">
-            <h2>Sessions per Day</h2>
-          </div>
+          <h2>Sessions per Day</h2>
           <div class="chart" id="sessions-chart"></div>
         </section>
         <section class="section">
-          <div class="section-header">
-            <h2>Views per Day</h2>
-          </div>
+          <h2>Views per Day</h2>
           <div class="chart" id="views-chart"></div>
         </section>
       </div>
 
-      <!-- Map and Countries Row -->
-      <div class="grid-3-1">
-        <section class="section">
-          <div class="section-header">
-            <h2>View Locations</h2>
-          </div>
-          <div class="map-container" id="map"></div>
-        </section>
-        <section class="section">
-          <div class="section-header">
-            <h2>Top Countries</h2>
-          </div>
-          <div class="country-list" id="country-list">
-            <div class="no-data">Loading...</div>
-          </div>
-        </section>
-      </div>
-
-      <!-- Tables Row -->
       <div class="grid-2">
         <section class="section">
-          <div class="section-header">
-            <h2>Top Viewed</h2>
-          </div>
+          <h2>Top Viewed</h2>
           <table class="data-table" id="top-viewed">
             <thead>
               <tr><th>Title</th><th>Views</th><th></th></tr>
@@ -2419,12 +2435,10 @@ function generateAdminHtml(): string {
           </table>
         </section>
         <section class="section">
-          <div class="section-header">
-            <h2>Recent Sessions</h2>
-          </div>
+          <h2>Recent Sessions</h2>
           <table class="data-table" id="recent-sessions">
             <thead>
-              <tr><th>Title</th><th>Type</th><th>Views</th><th>Created</th></tr>
+              <tr><th>Title</th><th>Type</th><th>Views</th></tr>
             </thead>
             <tbody></tbody>
           </table>
@@ -2434,55 +2448,25 @@ function generateAdminHtml(): string {
   </div>
 
   <script>
-    // Theme toggle
     function toggleTheme() {
       const html = document.documentElement;
       const current = html.getAttribute('data-theme');
-      const next = current === 'dark' ? null : 'dark';
-      if (next) {
-        html.setAttribute('data-theme', next);
-        localStorage.setItem('ccshare-admin-theme', next);
-      } else {
-        html.removeAttribute('data-theme');
-        localStorage.removeItem('ccshare-admin-theme');
-      }
-      updateMapTheme();
+      const next = current === 'dark' ? 'light' : 'dark';
+      html.setAttribute('data-theme', next);
+      localStorage.setItem('theme', next);
+      document.querySelector('.theme-icon').textContent = next === 'dark' ? '○' : '◐';
     }
 
     // Apply saved theme
     (function() {
-      const saved = localStorage.getItem('ccshare-admin-theme');
-      if (saved === 'dark') {
+      const saved = localStorage.getItem('theme');
+      if (saved) {
+        document.documentElement.setAttribute('data-theme', saved);
+      } else if (window.matchMedia('(prefers-color-scheme: dark)').matches) {
         document.documentElement.setAttribute('data-theme', 'dark');
       }
     })();
 
-    // Country code to flag emoji
-    function countryFlag(code) {
-      if (!code) return '🌍';
-      const codePoints = code.toUpperCase().split('').map(c => 127397 + c.charCodeAt(0));
-      return String.fromCodePoint(...codePoints);
-    }
-
-    // Country code to name
-    const countryNames = {
-      US: 'United States', GB: 'United Kingdom', DE: 'Germany', FR: 'France',
-      IN: 'India', CA: 'Canada', AU: 'Australia', JP: 'Japan', BR: 'Brazil',
-      NL: 'Netherlands', SE: 'Sweden', ES: 'Spain', IT: 'Italy', PL: 'Poland',
-      CH: 'Switzerland', AT: 'Austria', BE: 'Belgium', DK: 'Denmark', NO: 'Norway',
-      FI: 'Finland', IE: 'Ireland', NZ: 'New Zealand', SG: 'Singapore', KR: 'South Korea',
-      MX: 'Mexico', AR: 'Argentina', CO: 'Colombia', CL: 'Chile', PT: 'Portugal',
-      RU: 'Russia', UA: 'Ukraine', IL: 'Israel', AE: 'UAE', ZA: 'South Africa',
-      CN: 'China', HK: 'Hong Kong', TW: 'Taiwan', TH: 'Thailand', MY: 'Malaysia',
-      PH: 'Philippines', ID: 'Indonesia', VN: 'Vietnam', PK: 'Pakistan', BD: 'Bangladesh'
-    };
-
-    function countryName(code) {
-      return countryNames[code] || code || 'Unknown';
-    }
-
-    let map = null;
-    let markers = [];
     let cachedData = null;
     let currentPeriod = '30d';
 
@@ -2494,7 +2478,6 @@ function generateAdminHtml(): string {
       const adminKeyInput = document.getElementById('admin-key');
       const logoutBtn = document.getElementById('logout-btn');
 
-      // Period toggle
       document.querySelectorAll('.period-btn').forEach(btn => {
         btn.addEventListener('click', () => {
           document.querySelectorAll('.period-btn').forEach(b => b.classList.remove('active'));
@@ -2525,13 +2508,11 @@ function generateAdminHtml(): string {
           const res = await fetch('/api/admin/stats', {
             headers: { 'Authorization': 'Bearer ' + key }
           });
-
           if (!res.ok) {
             loginError.classList.remove('hidden');
             sessionStorage.removeItem('adminKey');
             return;
           }
-
           sessionStorage.setItem('adminKey', key);
           cachedData = await res.json();
           renderDashboard(cachedData);
@@ -2546,31 +2527,18 @@ function generateAdminHtml(): string {
       function updateStats(data) {
         const stats = data.stats[currentPeriod] || { sessions: 0, views: 0, users: 0 };
         document.getElementById('stat-sessions').textContent = stats.sessions.toLocaleString();
-        // Show tracked views + legacy views for all time
         const viewCount = currentPeriod === 'all' ? (stats.views + (data.legacyViews || 0)) : stats.views;
         document.getElementById('stat-views').textContent = viewCount.toLocaleString();
         document.getElementById('stat-users').textContent = stats.users.toLocaleString();
-
-        const publicCount = data.visibilityStats.find(s => s.visibility === 'public')?.count || 0;
-        document.getElementById('stat-public').textContent = publicCount.toLocaleString();
+        const privateCount = data.visibilityStats.find(s => s.visibility === 'private')?.count || 0;
+        document.getElementById('stat-private').textContent = privateCount.toLocaleString();
       }
 
       function renderDashboard(data) {
         updateStats(data);
+        renderChart('sessions-chart', data.sessionsPerDay);
+        renderChart('views-chart', data.viewsPerDay || []);
 
-        // Sessions chart
-        renderChart('sessions-chart', data.sessionsPerDay, 'Sessions');
-
-        // Views chart
-        renderChart('views-chart', data.viewsPerDay || [], 'Views');
-
-        // Initialize map
-        initMap(data.viewLocations || []);
-
-        // Country list
-        renderCountries(data.viewsByCountry || []);
-
-        // Top viewed table
         const topViewedBody = document.querySelector('#top-viewed tbody');
         if (!data.topViewed?.length) {
           topViewedBody.innerHTML = '<tr><td colspan="3" class="no-data">No sessions yet</td></tr>';
@@ -2580,20 +2548,18 @@ function generateAdminHtml(): string {
           ).join('');
         }
 
-        // Recent sessions table
         const recentBody = document.querySelector('#recent-sessions tbody');
         if (!data.recentSessions?.length) {
-          recentBody.innerHTML = '<tr><td colspan="4" class="no-data">No sessions yet</td></tr>';
+          recentBody.innerHTML = '<tr><td colspan="3" class="no-data">No sessions yet</td></tr>';
         } else {
           recentBody.innerHTML = data.recentSessions.slice(0, 8).map(s => {
-            const date = new Date(s.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
             const pill = '<span class="visibility-pill ' + s.visibility + '">' + s.visibility + '</span>';
-            return '<tr><td><a href="/s/' + s.id + '">' + escapeHtml(s.title?.slice(0,30) || 'Untitled') + '</a></td><td>' + pill + '</td><td>' + s.viewCount + '</td><td>' + date + '</td></tr>';
+            return '<tr><td><a href="/s/' + s.id + '">' + escapeHtml(s.title?.slice(0,30) || 'Untitled') + '</a></td><td>' + pill + '</td><td>' + s.viewCount + '</td></tr>';
           }).join('');
         }
       }
 
-      function renderChart(containerId, data, label) {
+      function renderChart(containerId, data) {
         const chart = document.getElementById(containerId);
         if (!data?.length) {
           chart.innerHTML = '<div class="no-data">No data yet</div>';
@@ -2602,127 +2568,8 @@ function generateAdminHtml(): string {
         const maxCount = Math.max(...data.map(d => d.count), 1);
         chart.innerHTML = data.slice(-30).map(d => {
           const height = Math.max((d.count / maxCount * 100), 4);
-          const date = new Date(d.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-          return '<div class="bar" style="height:' + height + '%" data-count="' + d.count + '"><span class="bar-label">' + date + '</span></div>';
+          return '<div class="bar" style="height:' + height + '%" data-count="' + d.count + '"></div>';
         }).join('');
-      }
-
-      function initMap(locations) {
-        const mapContainer = document.getElementById('map');
-        if (!locations?.length) {
-          mapContainer.innerHTML = '<div class="map-placeholder"><span class="map-placeholder-icon">🗺️</span>No location data yet</div>';
-          return;
-        }
-
-        // Initialize Leaflet map
-        const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
-        const tileUrl = isDark
-          ? 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png'
-          : 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png';
-
-        if (map) {
-          map.remove();
-        }
-
-        map = L.map('map', {
-          center: [20, 0],
-          zoom: 2,
-          scrollWheelZoom: false,
-          attributionControl: false
-        });
-
-        L.tileLayer(tileUrl, {
-          maxZoom: 18,
-        }).addTo(map);
-
-        // Create custom marker icon
-        const isDarkMode = document.documentElement.getAttribute('data-theme') === 'dark';
-        const markerColor = isDarkMode ? '#4d94ff' : '#0066ff';
-        const glowColor = isDarkMode ? 'rgba(77, 148, 255, 0.3)' : 'rgba(0, 102, 255, 0.2)';
-
-        // Group locations by coordinates for counting
-        const locationCounts = {};
-        locations.forEach(loc => {
-          const key = loc.latitude + ',' + loc.longitude;
-          if (!locationCounts[key]) {
-            locationCounts[key] = { ...loc, count: 0 };
-          }
-          locationCounts[key].count++;
-        });
-
-        // Add markers with size based on view count
-        markers = Object.values(locationCounts).map(loc => {
-          const lat = parseFloat(loc.latitude);
-          const lng = parseFloat(loc.longitude);
-          if (isNaN(lat) || isNaN(lng)) return null;
-
-          const count = loc.count;
-          const baseRadius = 6;
-          const maxRadius = 16;
-          const radius = Math.min(baseRadius + Math.log(count + 1) * 3, maxRadius);
-
-          // Create outer glow circle
-          const glowMarker = L.circleMarker([lat, lng], {
-            radius: radius + 4,
-            fillColor: markerColor,
-            color: 'transparent',
-            fillOpacity: 0.15
-          }).addTo(map);
-
-          // Create main circle marker
-          const marker = L.circleMarker([lat, lng], {
-            radius: radius,
-            fillColor: markerColor,
-            color: '#ffffff',
-            weight: 2,
-            opacity: 1,
-            fillOpacity: 0.9
-          });
-
-          const locationName = loc.city ? loc.city + ', ' + loc.country : loc.country || 'Unknown';
-          const popupContent = '<div style="text-align:center;font-weight:500;">' + locationName + '</div>' +
-            '<div style="text-align:center;color:#888;font-size:0.75rem;margin-top:2px;">' + count + ' view' + (count > 1 ? 's' : '') + '</div>';
-
-          marker.bindPopup(popupContent, { closeButton: false, className: 'custom-popup' });
-          marker.addTo(map);
-
-          return marker;
-        }).filter(Boolean);
-      }
-
-      function updateMapTheme() {
-        if (!map) return;
-        const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
-        const tileUrl = isDark
-          ? 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png'
-          : 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png';
-
-        // Remove existing tile layer and add new one
-        map.eachLayer(layer => {
-          if (layer instanceof L.TileLayer) {
-            map.removeLayer(layer);
-          }
-        });
-        L.tileLayer(tileUrl, { maxZoom: 18 }).addTo(map);
-      }
-
-      window.updateMapTheme = updateMapTheme;
-
-      function renderCountries(countries) {
-        const container = document.getElementById('country-list');
-        if (!countries?.length) {
-          container.innerHTML = '<div class="no-data">No location data yet</div>';
-          return;
-        }
-        container.innerHTML = countries.slice(0, 10).map(c =>
-          '<div class="country-item">' +
-            '<span class="country-name">' +
-              '<span class="country-flag">' + countryFlag(c.country) + '</span>' +
-              countryName(c.country) +
-            '</span>' +
-            '<span class="country-count">' + c.count + '</span>' +
-          '</div>'
-        ).join('');
       }
 
       function escapeHtml(str) {
