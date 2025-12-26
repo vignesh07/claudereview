@@ -2102,11 +2102,26 @@ const VIEWER_JS = `
       sel?.addRange(range);
     });
 
-    titleEl?.addEventListener('blur', () => {
-      // Title editing finished - could save to localStorage
+    titleEl?.addEventListener('blur', async () => {
+      // Title editing finished - save to server if owner, otherwise localStorage
       const newTitle = titleEl.textContent?.trim();
-      if (newTitle) {
-        localStorage.setItem('ccshare-title-' + sessionData.id, newTitle);
+      if (newTitle && newTitle !== titleEl.dataset.original) {
+        try {
+          const res = await fetch('/api/sessions/' + sessionData.id, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ title: newTitle })
+          });
+          if (res.ok) {
+            titleEl.dataset.original = newTitle;
+          } else {
+            // Not owner - save locally only
+            localStorage.setItem('ccshare-title-' + sessionData.id, newTitle);
+          }
+        } catch {
+          // Offline or error - save locally
+          localStorage.setItem('ccshare-title-' + sessionData.id, newTitle);
+        }
       }
     });
 

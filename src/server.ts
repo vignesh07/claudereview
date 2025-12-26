@@ -954,10 +954,10 @@ function generateDashboardHtml(user: User): string {
               </div>
             </div>
             <div class="session-actions">
-              <button class="btn-icon" onclick="copyLink('\${s.id}')" title="Copy link">📋</button>
-              <a href="/s/\${s.id}" class="btn-icon" target="_blank" title="View">👁️</a>
-              <button class="btn-icon" onclick="openEditModal('\${s.id}', '\${escapeHtml(s.title).replace(/'/g, "\\\\'")}' )" title="Edit">✏️</button>
-              <button class="btn-icon btn-danger" onclick="openDeleteModal('\${s.id}')" title="Delete">🗑️</button>
+              <button class="btn-text" onclick="copyLink('\${s.id}')">Copy</button>
+              <a href="/s/\${s.id}" class="btn-text" target="_blank">Preview</a>
+              <button class="btn-text" onclick="openEditModal('\${s.id}', '\${escapeHtml(s.title).replace(/'/g, "\\\\'")}' )">Edit</button>
+              <button class="btn-icon btn-danger" onclick="openDeleteModal('\${s.id}')" title="Delete">×</button>
             </div>
           </div>
         \`).join('');
@@ -990,9 +990,12 @@ function generateDashboardHtml(user: User): string {
       navigator.clipboard.writeText(url);
       // Show brief feedback
       const btn = event.target;
-      const original = btn.textContent;
-      btn.textContent = '✓';
-      setTimeout(() => btn.textContent = original, 1500);
+      btn.textContent = 'Copied!';
+      btn.disabled = true;
+      setTimeout(() => {
+        btn.textContent = 'Copy';
+        btn.disabled = false;
+      }, 1500);
     }
 
     function openEditModal(id, title) {
@@ -1082,7 +1085,7 @@ function generateDashboardHtml(user: User): string {
               <span class="key-name">\${escapeHtml(k.name)}</span>
               <span class="key-meta">Created \${formatDate(k.createdAt)}\${k.lastUsedAt ? ' · Last used ' + formatDate(k.lastUsedAt) : ''}</span>
             </div>
-            <button class="btn-icon btn-danger" onclick="openDeleteKeyModal('\${k.id}')" title="Revoke">🗑️</button>
+            <button class="btn-icon btn-danger" onclick="openDeleteKeyModal('\${k.id}')" title="Revoke">×</button>
           </div>
         \`).join('');
       } catch (err) {
@@ -2201,6 +2204,32 @@ main h1 {
 .btn-icon.btn-danger:hover {
   background: rgba(248, 81, 73, 0.15);
   border-color: var(--red);
+  color: var(--red);
+}
+
+.btn-text {
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 0.375rem 0.75rem;
+  cursor: pointer;
+  font-size: 0.8125rem;
+  font-family: var(--font-mono);
+  color: var(--text-muted);
+  text-decoration: none;
+  transition: all 0.15s;
+}
+
+.btn-text:hover {
+  background: var(--bg-tertiary);
+  border-color: var(--text-muted);
+  color: var(--text);
+}
+
+.btn-text:disabled {
+  color: var(--green);
+  border-color: var(--green);
+  cursor: default;
 }
 
 .empty-state {
