@@ -16,6 +16,7 @@ const app = new Hono();
 // Environment
 const GITHUB_CLIENT_ID = process.env.GITHUB_CLIENT_ID;
 const GITHUB_CLIENT_SECRET = process.env.GITHUB_CLIENT_SECRET;
+const GITHUB_TOKEN = process.env.GITHUB_TOKEN; // For creating feedback issues
 const BASE_URL = process.env.BASE_URL || 'http://localhost:3000';
 const SESSION_SECRET = process.env.SESSION_SECRET || 'dev-secret-change-in-production';
 
@@ -309,11 +310,8 @@ app.patch('/api/sessions/:id', async (c) => {
   // Determine the final visibility (current or changing to)
   const finalVisibility = body.visibility || session.visibility;
 
-  // Handle title update - block for private sessions (metadata not stored)
+  // Handle title update - allowed for all sessions (owner can see in dashboard)
   if (body.title) {
-    if (finalVisibility === 'private') {
-      return c.json({ error: 'Cannot set title for private sessions' }, 400);
-    }
     updates.title = body.title.slice(0, 200);
   }
 
@@ -349,11 +347,8 @@ app.patch('/api/sessions/:id', async (c) => {
         updates.salt = encrypted.salt;
         updates.ownerKey = null; // No key storage for password-protected sessions
         updates.visibility = 'private';
-        // Clear all metadata for private sessions
-        updates.title = null;
-        updates.messageCount = null;
-        updates.toolCount = null;
-        updates.durationSeconds = null;
+        // Keep metadata - owner can still see in dashboard
+        // Public API hides it for private sessions
       } else {
         // Changing to public: encrypt with random key
         const encrypted = encryptForPublic(decryptedData);
@@ -555,15 +550,15 @@ app.post('/api/upload', async (c) => {
     }
 
     // Store in database
-    // For private sessions, don't store metadata (title, counts) to ensure true privacy
-    const isPrivate = parsed.visibility === 'private';
+    // Store metadata for all sessions (owner can see their own data in dashboard)
+    // Public API hides metadata for private sessions
     const session: NewSession = {
       id,
       userId,
-      title: isPrivate ? null : parsed.metadata.title.slice(0, 200), // Don't store title for private
-      messageCount: isPrivate ? null : parsed.metadata.messageCount,
-      toolCount: isPrivate ? null : parsed.metadata.toolCount,
-      durationSeconds: isPrivate ? null : parsed.metadata.durationSeconds,
+      title: parsed.metadata.title.slice(0, 200),
+      messageCount: parsed.metadata.messageCount,
+      toolCount: parsed.metadata.toolCount,
+      durationSeconds: parsed.metadata.durationSeconds,
       visibility: parsed.visibility,
       encryptedBlob: parsed.encryptedBlob,
       iv: parsed.iv,
@@ -1448,12 +1443,13 @@ function generatePrivacyHtml(user: User | null): string {
                     ┌──────────────────────────────┘
                     ▼
         ┌───────────────────────┐
-        │   Encrypted Blob      │────▶ Server stores only:
+        │   Encrypted Blob      │────▶ Server stores:
         │   (unreadable)        │      • Encrypted blob
         └───────────────────────┘      • Salt (for key derivation)
-                                       • Basic metadata*
+                                       • Metadata (owner-only)*
 
-* Metadata (title, message count) is NOT stored for private sessions.</div>
+* Metadata is stored but only visible to you (the owner) in your dashboard.
+  The public API does NOT expose metadata for password-protected sessions.</div>
 
       <h3>Public Link Sessions</h3>
       <div class="diagram">┌─────────────┐     ┌──────────────────┐     ┌─────────────┐
@@ -1495,13 +1491,13 @@ URL: claudereview.com/s/abc123#key=xxxxx
             <td style="padding: 12px 8px; color: var(--text-secondary);">Session title</td>
             <td style="text-align: center; padding: 12px 8px;">✓</td>
             <td style="text-align: center; padding: 12px 8px;">✓</td>
-            <td style="text-align: center; padding: 12px 8px;">✗</td>
+            <td style="text-align: center; padding: 12px 8px;">🔒 Owner only</td>
           </tr>
           <tr style="border-bottom: 1px solid var(--border);">
             <td style="padding: 12px 8px; color: var(--text-secondary);">Message/tool counts</td>
             <td style="text-align: center; padding: 12px 8px;">✓</td>
             <td style="text-align: center; padding: 12px 8px;">✓</td>
-            <td style="text-align: center; padding: 12px 8px;">✗</td>
+            <td style="text-align: center; padding: 12px 8px;">🔒 Owner only</td>
           </tr>
           <tr style="border-bottom: 1px solid var(--border);">
             <td style="padding: 12px 8px; color: var(--text-secondary);">Encryption key</td>
@@ -1554,7 +1550,7 @@ URL: claudereview.com/s/abc123#key=xxxxx
       </ul>
 
       <h2>Questions?</h2>
-      <p>Open an issue on <a href="https://github.com/vignesh07/claudereview/issues" style="color: var(--accent);">GitHub</a> or contact us at privacy@claudereview.com.</p>
+      <p>Open an issue on <a href="https://github.com/vignesh07/claudereview/issues" style="color: var(--accent);">GitHub</a>.</p>
     </div>
 
     <footer>
@@ -1781,12 +1777,10 @@ function generateDashboardHtml(user: User): string {
         list.innerHTML = data.sessions.map(s => \`
           <div class="session-card" data-id="\${s.id}">
             <div class="session-main">
-              <div class="session-title">\${escapeHtml(s.title)}</div>
+              <div class="session-title">\${escapeHtml(s.title || 'Untitled Session')}</div>
               <div class="session-meta">
-                <span>\${s.messageCount} messages</span>
-                <span class="sep">·</span>
-                <span>\${s.toolCount} tools</span>
-                <span class="sep">·</span>
+                \${s.messageCount != null ? \`<span>\${s.messageCount} messages</span><span class="sep">·</span>\` : ''}
+                \${s.toolCount != null ? \`<span>\${s.toolCount} tools</span><span class="sep">·</span>\` : ''}
                 <span>\${s.viewCount} views</span>
                 <span class="sep">·</span>
                 <span>\${formatDate(s.createdAt)}</span>
@@ -1796,7 +1790,7 @@ function generateDashboardHtml(user: User): string {
             <div class="session-actions">
               <button class="btn-text" onclick="copyLink('\${s.id}', '\${s.ownerKey || ''}')">Copy</button>
               <a href="/s/\${s.id}\${s.ownerKey ? '#key=' + s.ownerKey : ''}" class="btn-text" target="_blank">View</a>
-              <button class="btn-text" onclick="openEditModal('\${s.id}', '\${escapeHtml(s.title).replace(/'/g, "\\\\'")}', '\${s.visibility}')">Edit</button>
+              <button class="btn-text" onclick="openEditModal('\${s.id}', '\${escapeHtml(s.title || 'Untitled Session').replace(/'/g, "\\\\'")}', '\${s.visibility}')">Edit</button>
               <button class="btn-icon btn-danger" onclick="openDeleteModal('\${s.id}')" title="Delete">×</button>
             </div>
           </div>
