@@ -999,15 +999,17 @@ body {
   align-items: center;
   gap: var(--space-1);
   background: var(--bg-tertiary);
-  padding: 3px 8px;
+  padding: 6px 12px;
   border-radius: var(--radius-sm);
-  font-size: var(--font-size-xs);
+  font-size: var(--font-size-sm);
+  font-weight: 500;
   color: var(--tool-accent);
 }
 
 .tool-count {
   color: var(--text-muted);
-  margin-left: 2px;
+  margin-left: 3px;
+  font-weight: 600;
 }
 
 /* ========== Messages Container ========== */
