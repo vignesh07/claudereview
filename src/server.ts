@@ -1031,7 +1031,7 @@ function generateDashboardHtml(user: User): string {
                 <span>\${s.viewCount} views</span>
                 <span class="sep">·</span>
                 <span>\${formatDate(s.createdAt)}</span>
-                <span class="visibility-badge \${s.visibility}">\${s.visibility === 'private' ? '🔐 Private' : '🔗 Public'}</span>
+                <span class="visibility-badge \${s.visibility}">\${s.visibility === 'private' ? 'Private' : 'Public'}</span>
               </div>
             </div>
             <div class="session-actions">
