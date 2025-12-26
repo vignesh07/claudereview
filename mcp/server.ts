@@ -20,6 +20,7 @@ import { readdir, stat, readFile } from 'fs/promises';
 import { join } from 'path';
 import { homedir } from 'os';
 import { renderSessionToHtml } from './renderer.ts';
+import type { ParsedSession, ParsedMessage, SessionMetadata } from './types.ts';
 
 const CLAUDE_PROJECTS_DIR = join(homedir(), '.claude', 'projects');
 const API_URL = process.env.CCSHARE_API_URL || process.env.CLAUDEREVIEW_API_URL || 'https://claudereview.com';
@@ -91,35 +92,6 @@ async function getSessionContent(sessionId: string): Promise<string | null> {
   return await readFile(session.path, 'utf-8');
 }
 
-// Session parsing (matching CLI parser)
-interface ParsedMessage {
-  id: string;
-  type: 'human' | 'assistant' | 'tool_call' | 'tool_result';
-  content: string;
-  timestamp: string;
-  toolName?: string;
-  toolInput?: Record<string, unknown>;
-  toolId?: string;
-  toolOutput?: string;
-  isError?: boolean;
-}
-
-interface SessionMetadata {
-  messageCount: number;
-  toolCount: number;
-  durationSeconds: number;
-  startTime: string;
-  endTime: string;
-  tools: Record<string, number>;
-}
-
-interface ParsedSession {
-  id: string;
-  title: string;
-  messages: ParsedMessage[];
-  metadata: SessionMetadata;
-}
-
 function parseSessionContent(content: string, sessionId: string, customTitle?: string): ParsedSession {
   const lines = content.trim().split('\n').filter(line => line.trim());
   const messages: ParsedMessage[] = [];
@@ -127,6 +99,12 @@ function parseSessionContent(content: string, sessionId: string, customTitle?: s
   const timestamps: number[] = [];
   const toolCounts: Record<string, number> = {};
   let messageIndex = 0;
+
+  // Key moments tracking (matching CLI parser)
+  const filesCreated = new Set<string>();
+  const filesModified = new Set<string>();
+  const commandsRun: string[] = [];
+  let totalChars = 0;
 
   for (const line of lines) {
     try {
@@ -149,6 +127,7 @@ function parseSessionContent(content: string, sessionId: string, customTitle?: s
       if (raw.type === 'user') {
         if (typeof raw.message.content === 'string') {
           // Human message
+          totalChars += raw.message.content.length;
           messages.push({
             id: `msg-${messageIndex++}`,
             type: 'human',
@@ -164,6 +143,7 @@ function parseSessionContent(content: string, sessionId: string, customTitle?: s
               if (raw.toolUseResult?.stderr) output += (output ? '\n' : '') + raw.toolUseResult.stderr;
               if (!output && typeof block.content === 'string') output = block.content;
 
+              totalChars += output.length;
               messages.push({
                 id: `msg-${messageIndex++}`,
                 type: 'tool_result',
@@ -181,6 +161,7 @@ function parseSessionContent(content: string, sessionId: string, customTitle?: s
           if (block.type === 'thinking') continue;
 
           if (block.type === 'text' && block.text) {
+            totalChars += block.text.length;
             messages.push({
               id: `msg-${messageIndex++}`,
               type: 'assistant',
@@ -189,6 +170,23 @@ function parseSessionContent(content: string, sessionId: string, customTitle?: s
             });
           } else if (block.type === 'tool_use') {
             toolCounts[block.name] = (toolCounts[block.name] || 0) + 1;
+
+            // Extract key moments
+            const input = block.input as Record<string, unknown> | undefined;
+            if (block.name === 'Write' && input?.file_path) {
+              filesCreated.add(String(input.file_path));
+            }
+            if (block.name === 'Edit' && input?.file_path) {
+              filesModified.add(String(input.file_path));
+            }
+            if (block.name === 'Bash' && input?.command) {
+              const cmd = String(input.command);
+              // Only track interesting commands (not cd, ls, etc.)
+              if (!cmd.match(/^(cd|ls|pwd|echo|cat|head|tail)\b/) && cmd.length < 100) {
+                commandsRun.push(cmd);
+              }
+            }
+
             messages.push({
               id: `msg-${messageIndex++}`,
               type: 'tool_call',
@@ -227,6 +225,10 @@ function parseSessionContent(content: string, sessionId: string, customTitle?: s
       startTime,
       endTime,
       tools: toolCounts,
+      filesCreated: [...filesCreated].slice(0, 20),
+      filesModified: [...filesModified].slice(0, 20),
+      commandsRun: commandsRun.slice(0, 15),
+      estimatedTokens: Math.round(totalChars / 4),
     },
   };
 }
@@ -332,7 +334,15 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
   tools: [
     {
       name: 'list_sessions',
-      description: 'List available Claude Code sessions. Returns the most recent sessions with their IDs, titles, and project paths.',
+      description: `List available Claude Code sessions from ~/.claude/projects.
+
+Returns the most recent sessions with:
+- Session ID (use for sharing)
+- Title (from session summary)
+- Project path
+- Last modified time
+
+Example: list_sessions(limit: 5)`,
       inputSchema: {
         type: 'object',
         properties: {
@@ -345,17 +355,36 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
     },
     {
       name: 'share_session',
-      description: 'Share a Claude Code session to claudereview.com and get an encrypted shareable URL.',
+      description: `Share a Claude Code session to claudereview.com with full-featured viewer.
+
+Creates an E2E encrypted link with:
+- TUI-style dark/light theme viewer
+- Search overlay (⌘F)
+- Collapsible tool outputs
+- Syntax highlighted code blocks
+- Diff view for file edits
+- Key moments summary (files created/modified, commands run)
+- Git context (repo, branch, commit)
+- Clickable tool badges to jump to instances
+- Token/cost estimates
+- Deep linking to specific messages
+- OG meta tags for link previews
+
+The encryption key is embedded in the URL fragment (#key=xxx) and never sent to the server.
+
+Set CCSHARE_API_KEY environment variable to link sessions to your account and manage them in the dashboard.
+
+Example: share_session(session_id: "last", title: "Bug fix for auth")`,
       inputSchema: {
         type: 'object',
         properties: {
           session_id: {
             type: 'string',
-            description: 'Session ID to share (use "last" for the most recent session)',
+            description: 'Session ID to share. Use "last" for the most recent session, or provide the session ID from list_sessions.',
           },
           title: {
             type: 'string',
-            description: 'Custom title for the shared session (optional)',
+            description: 'Custom title for the shared session. If not provided, uses the session summary.',
           },
         },
         required: ['session_id'],
