@@ -1,4 +1,5 @@
 import type { ParsedSession, ParsedMessage, SessionMetadata } from './types.ts';
+import { diffLines } from './diff.ts';
 import { BROWSER_CRYPTO_CODE } from './crypto.ts';
 
 /**
@@ -10,6 +11,8 @@ export function renderSessionToHtml(session: ParsedSession, options?: RenderOpti
     encryptedBlob,
     iv,
     salt,
+    theme = 'dark',
+    embed = false,
   } = options || {};
 
   const sessionDataForViewer = encrypted
@@ -17,7 +20,7 @@ export function renderSessionToHtml(session: ParsedSession, options?: RenderOpti
     : session;
 
   return `<!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="${theme}"${embed ? ' data-embed="true"' : ''}>
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -26,7 +29,7 @@ export function renderSessionToHtml(session: ParsedSession, options?: RenderOpti
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-  <style>${CSS}</style>
+  <style>${CSS}${LIGHT_MODE_CSS}</style>
 </head>
 <body>
   <div id="app">
@@ -110,6 +113,8 @@ interface RenderOptions {
   encryptedBlob?: string;
   iv?: string;
   salt?: string;
+  theme?: 'dark' | 'light';
+  embed?: boolean;
 }
 
 function renderOgTags(session: ParsedSession): string {
@@ -133,11 +138,19 @@ function renderOgTags(session: ParsedSession): string {
 }
 
 function renderHeader(session: ParsedSession): string {
+  // Clickable tool badges that jump to first instance
   const toolsSummary = Object.entries(session.metadata.tools)
     .sort((a, b) => b[1] - a[1])
     .slice(0, 5)
-    .map(([name, count]) => `<span class="tool-badge">${name}<span class="tool-count">${count}</span></span>`)
+    .map(([name, count]) => `<button class="tool-badge tool-nav" data-tool="${escapeHtml(name)}">${escapeHtml(name)}<span class="tool-count">${count}</span></button>`)
     .join('');
+
+  // Token/cost estimate
+  const tokens = session.metadata.estimatedTokens || 0;
+  const costEstimate = tokens > 0 ? `~${Math.round(tokens / 1000)}K tokens` : '';
+
+  // Key moments summary
+  const keyMoments = renderKeyMoments(session.metadata);
 
   return `
   <header class="viewer-header">
@@ -147,6 +160,9 @@ function renderHeader(session: ParsedSession): string {
         <span class="logo-text">claudereview</span>
       </a>
       <div class="header-actions">
+        <button id="theme-toggle" class="action-btn" title="Toggle theme">
+          <span class="action-icon theme-icon">◐</span>
+        </button>
         <button id="collapse-all-btn" class="action-btn" title="Collapse all (C)">
           <span class="action-icon">⊟</span>
         </button>
@@ -170,13 +186,52 @@ function renderHeader(session: ParsedSession): string {
           <span class="meta-icon">⏱</span>
           ${formatDuration(session.metadata.durationSeconds)}
         </span>
+        ${costEstimate ? `<span class="meta-item token-count" title="Estimated tokens"><span class="meta-icon">⚡</span>${costEstimate}</span>` : ''}
         <span class="meta-item session-id">
           ${session.id.slice(0, 8)}
         </span>
       </div>
       ${toolsSummary ? `<div class="tools-used">${toolsSummary}</div>` : ''}
     </div>
+    ${keyMoments}
   </header>`;
+}
+
+function renderKeyMoments(metadata: SessionMetadata): string {
+  const { filesCreated, filesModified, commandsRun } = metadata;
+
+  const hasKeyMoments = (filesCreated?.length || 0) + (filesModified?.length || 0) + (commandsRun?.length || 0) > 0;
+  if (!hasKeyMoments) return '';
+
+  let content = '<details class="key-moments"><summary class="key-moments-toggle">📋 Key Moments (TL;DR)</summary><div class="key-moments-content">';
+
+  if (filesCreated && filesCreated.length > 0) {
+    content += `<div class="km-section"><span class="km-label">Files Created:</span>`;
+    content += filesCreated.slice(0, 10).map(f => `<span class="km-file created">${escapeHtml(basename(f))}</span>`).join('');
+    if (filesCreated.length > 10) content += `<span class="km-more">+${filesCreated.length - 10} more</span>`;
+    content += '</div>';
+  }
+
+  if (filesModified && filesModified.length > 0) {
+    content += `<div class="km-section"><span class="km-label">Files Modified:</span>`;
+    content += filesModified.slice(0, 10).map(f => `<span class="km-file modified">${escapeHtml(basename(f))}</span>`).join('');
+    if (filesModified.length > 10) content += `<span class="km-more">+${filesModified.length - 10} more</span>`;
+    content += '</div>';
+  }
+
+  if (commandsRun && commandsRun.length > 0) {
+    content += `<div class="km-section"><span class="km-label">Commands:</span>`;
+    content += commandsRun.slice(0, 5).map(c => `<code class="km-cmd">${escapeHtml(truncate(c, 50))}</code>`).join('');
+    if (commandsRun.length > 5) content += `<span class="km-more">+${commandsRun.length - 5} more</span>`;
+    content += '</div>';
+  }
+
+  content += '</div></details>';
+  return content;
+}
+
+function basename(path: string): string {
+  return path.split('/').pop() || path;
 }
 
 function renderMessages(messages: ParsedMessage[]): string {
@@ -274,14 +329,40 @@ function renderToolCall(message: ParsedMessage): string {
   const icon = getToolIcon(name);
   const summary = formatToolSummary(name, message.toolInput);
 
+  // For Edit tool, show diff inline
+  let diffView = '';
+  if (name === 'Edit' && message.toolInput) {
+    const oldStr = String(message.toolInput.old_string || '');
+    const newStr = String(message.toolInput.new_string || '');
+    if (oldStr && newStr && oldStr !== newStr) {
+      diffView = `<div class="edit-diff">${formatDiffHtml(oldStr, newStr)}</div>`;
+    }
+  }
+
   return `
-  <div class="tool-call" id="${message.id}">
+  <div class="tool-call" id="${message.id}" data-tool-name="${escapeHtml(name)}">
     <div class="tool-header">
       <span class="tool-icon">${icon}</span>
       <span class="tool-name">${escapeHtml(name)}</span>
       <span class="tool-summary">${escapeHtml(summary)}</span>
     </div>
+    ${diffView}
   </div>`;
+}
+
+function formatDiffHtml(oldStr: string, newStr: string): string {
+  const lines = diffLines(oldStr, newStr);
+  let html = '<div class="diff-view">';
+
+  for (const line of lines) {
+    const prefix = line.type === 'add' ? '+' : line.type === 'remove' ? '-' : ' ';
+    const className = `diff-line diff-${line.type}`;
+    const escapedContent = escapeHtml(line.content);
+    html += `<div class="${className}"><span class="diff-prefix">${prefix}</span><span class="diff-content">${escapedContent}</span></div>`;
+  }
+
+  html += '</div>';
+  return html;
 }
 
 function renderToolResult(message: ParsedMessage): string {
@@ -1278,6 +1359,268 @@ body {
 .language-typescript .number { color: var(--accent-orange); }
 .language-javascript .comment,
 .language-typescript .comment { color: var(--text-muted); }
+
+/* ========== Key Moments Summary ========== */
+.key-moments {
+  margin-top: var(--space-4);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--bg-secondary);
+}
+
+.key-moments-toggle {
+  padding: var(--space-3);
+  cursor: pointer;
+  font-size: var(--font-size-sm);
+  color: var(--text-secondary);
+  list-style: none;
+}
+
+.key-moments-toggle::-webkit-details-marker { display: none; }
+
+.key-moments[open] .key-moments-toggle {
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.key-moments-content {
+  padding: var(--space-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.km-section {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.km-label {
+  font-size: var(--font-size-xs);
+  color: var(--text-muted);
+  min-width: 100px;
+}
+
+.km-file {
+  font-size: var(--font-size-xs);
+  padding: 2px 6px;
+  border-radius: 3px;
+  font-family: var(--font-mono);
+}
+
+.km-file.created {
+  background: rgba(78, 201, 112, 0.15);
+  color: var(--accent-green);
+}
+
+.km-file.modified {
+  background: rgba(230, 192, 123, 0.15);
+  color: var(--accent-yellow);
+}
+
+.km-cmd {
+  font-size: var(--font-size-xs);
+  background: var(--bg-tertiary);
+  padding: 2px 6px;
+  border-radius: 3px;
+  color: var(--tool-accent);
+}
+
+.km-more {
+  font-size: var(--font-size-xs);
+  color: var(--text-muted);
+}
+
+/* ========== Diff View ========== */
+.diff-view {
+  font-size: var(--font-size-sm);
+  line-height: 1.5;
+  overflow-x: auto;
+}
+
+.diff-line {
+  display: flex;
+  white-space: pre;
+  font-family: var(--font-mono);
+}
+
+.diff-prefix {
+  width: 20px;
+  flex-shrink: 0;
+  text-align: center;
+  user-select: none;
+}
+
+.diff-content {
+  flex: 1;
+  padding-right: var(--space-2);
+}
+
+.diff-add {
+  background: rgba(78, 201, 112, 0.15);
+  color: var(--accent-green);
+}
+
+.diff-add .diff-prefix {
+  color: var(--accent-green);
+}
+
+.diff-remove {
+  background: rgba(224, 108, 117, 0.15);
+  color: var(--error-accent);
+}
+
+.diff-remove .diff-prefix {
+  color: var(--error-accent);
+}
+
+.diff-unchanged {
+  color: var(--text-muted);
+}
+
+.diff-collapse {
+  color: var(--text-muted);
+  font-style: italic;
+  padding-left: 20px;
+  background: var(--bg-tertiary);
+}
+
+/* ========== Embed Mode ========== */
+[data-embed="true"] .viewer-header {
+  position: static;
+  padding: var(--space-2) var(--space-3);
+}
+
+[data-embed="true"] .header-top {
+  display: none;
+}
+
+[data-embed="true"] .session-title {
+  font-size: var(--font-size-sm);
+}
+
+[data-embed="true"] .viewer-footer {
+  display: none;
+}
+
+[data-embed="true"] .session-container {
+  padding: var(--space-2);
+}
+
+/* ========== Tool Navigation ========== */
+.tool-badge.tool-nav {
+  cursor: pointer;
+  border: none;
+  font-family: var(--font-mono);
+  transition: all var(--transition-fast);
+}
+
+.tool-badge.tool-nav:hover {
+  background: var(--bg-elevated);
+  transform: scale(1.05);
+}
+
+.tool-nav-indicator {
+  position: fixed;
+  bottom: 80px;
+  right: 20px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-medium);
+  border-radius: var(--radius-md);
+  padding: var(--space-2) var(--space-3);
+  display: none;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--font-size-xs);
+  box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+  z-index: 100;
+}
+
+.tool-nav-indicator.visible {
+  display: flex;
+}
+
+.tool-nav-indicator button {
+  background: var(--bg-tertiary);
+  border: none;
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-family: var(--font-mono);
+}
+
+.tool-nav-indicator button:hover {
+  color: var(--text-primary);
+  background: var(--bg-elevated);
+}
+
+/* ========== Highlight Flash Animation ========== */
+.highlight-flash {
+  animation: flashHighlight 1.5s ease;
+}
+
+@keyframes flashHighlight {
+  0%, 30% { background: rgba(94, 159, 215, 0.2); }
+  100% { background: transparent; }
+}
+
+/* ========== Edit Diff ========== */
+.edit-diff {
+  margin-top: var(--space-2);
+  background: var(--bg-secondary);
+  border-radius: var(--radius-sm);
+  padding: var(--space-2);
+  max-height: 300px;
+  overflow: auto;
+}
+`;
+
+// ============================================================================
+// Light Mode CSS
+// ============================================================================
+
+const LIGHT_MODE_CSS = `
+/* ========== Light Mode ========== */
+[data-theme="light"] {
+  --bg-primary: #ffffff;
+  --bg-secondary: #f8f9fa;
+  --bg-tertiary: #f1f3f4;
+  --bg-elevated: #e8eaed;
+
+  --text-primary: #1f2937;
+  --text-secondary: #4b5563;
+  --text-muted: #9ca3af;
+  --text-bright: #111827;
+
+  --accent-green: #059669;
+  --accent-blue: #2563eb;
+  --accent-purple: #7c3aed;
+  --accent-yellow: #d97706;
+  --accent-red: #dc2626;
+  --accent-cyan: #0891b2;
+  --accent-orange: #ea580c;
+
+  --border-subtle: #e5e7eb;
+  --border-medium: #d1d5db;
+}
+
+[data-theme="light"] .terminal-window {
+  box-shadow: 0 20px 60px rgba(0,0,0,0.1);
+}
+
+[data-theme="light"] ::-webkit-scrollbar-track {
+  background: var(--bg-secondary);
+}
+
+[data-theme="light"] ::-webkit-scrollbar-thumb {
+  background: var(--border-medium);
+}
+
+[data-theme="light"] .human-content.collapsed::after {
+  background: linear-gradient(transparent, var(--bg-primary));
+}
 `;
 
 // ============================================================================
@@ -1427,6 +1770,97 @@ const VIEWER_JS = `
   }
 
   function initViewer() {
+    // Theme toggle
+    document.getElementById('theme-toggle')?.addEventListener('click', () => {
+      const html = document.documentElement;
+      const current = html.getAttribute('data-theme') || 'dark';
+      const next = current === 'dark' ? 'light' : 'dark';
+      html.setAttribute('data-theme', next);
+      localStorage.setItem('ccshare-theme', next);
+    });
+
+    // Restore saved theme
+    const savedTheme = localStorage.getItem('ccshare-theme');
+    if (savedTheme) {
+      document.documentElement.setAttribute('data-theme', savedTheme);
+    }
+
+    // Check URL for embed mode
+    if (new URLSearchParams(window.location.search).get('embed') === 'true') {
+      document.documentElement.setAttribute('data-embed', 'true');
+    }
+
+    // Tool navigation - click badge to jump to tool instances
+    let toolNavState = { tool: null, instances: [], currentIndex: -1 };
+
+    document.querySelectorAll('.tool-nav').forEach(badge => {
+      badge.addEventListener('click', () => {
+        const toolName = badge.dataset.tool;
+        const instances = Array.from(document.querySelectorAll(\`[data-tool-name="\${toolName}"]\`));
+
+        if (instances.length === 0) return;
+
+        if (toolNavState.tool === toolName && toolNavState.currentIndex < instances.length - 1) {
+          toolNavState.currentIndex++;
+        } else {
+          toolNavState.tool = toolName;
+          toolNavState.instances = instances;
+          toolNavState.currentIndex = 0;
+        }
+
+        const target = instances[toolNavState.currentIndex];
+        target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        target.classList.add('highlight-flash');
+        setTimeout(() => target.classList.remove('highlight-flash'), 1500);
+
+        updateToolNavIndicator(toolName, toolNavState.currentIndex + 1, instances.length);
+      });
+    });
+
+    function updateToolNavIndicator(tool, current, total) {
+      let indicator = document.getElementById('tool-nav-indicator');
+      if (!indicator) {
+        indicator = document.createElement('div');
+        indicator.id = 'tool-nav-indicator';
+        indicator.className = 'tool-nav-indicator';
+        indicator.innerHTML = \`
+          <span class="nav-info"></span>
+          <button class="nav-prev">←</button>
+          <button class="nav-next">→</button>
+          <button class="nav-close">×</button>
+        \`;
+        document.body.appendChild(indicator);
+
+        indicator.querySelector('.nav-prev').addEventListener('click', () => navToolPrev());
+        indicator.querySelector('.nav-next').addEventListener('click', () => navToolNext());
+        indicator.querySelector('.nav-close').addEventListener('click', () => {
+          indicator.classList.remove('visible');
+          toolNavState = { tool: null, instances: [], currentIndex: -1 };
+        });
+      }
+
+      indicator.querySelector('.nav-info').textContent = \`\${tool} \${current}/\${total}\`;
+      indicator.classList.add('visible');
+    }
+
+    function navToolPrev() {
+      if (toolNavState.currentIndex > 0) {
+        toolNavState.currentIndex--;
+        const target = toolNavState.instances[toolNavState.currentIndex];
+        target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        updateToolNavIndicator(toolNavState.tool, toolNavState.currentIndex + 1, toolNavState.instances.length);
+      }
+    }
+
+    function navToolNext() {
+      if (toolNavState.currentIndex < toolNavState.instances.length - 1) {
+        toolNavState.currentIndex++;
+        const target = toolNavState.instances[toolNavState.currentIndex];
+        target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        updateToolNavIndicator(toolNavState.tool, toolNavState.currentIndex + 1, toolNavState.instances.length);
+      }
+    }
+
     // Collapse/expand buttons
     document.getElementById('collapse-all-btn')?.addEventListener('click', () => {
       document.querySelectorAll('.tool-result').forEach(el => el.classList.add('collapsed'));

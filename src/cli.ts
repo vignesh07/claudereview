@@ -79,6 +79,9 @@ program
   .command('preview [session-id]')
   .description('Preview a session locally in browser')
   .option('-l, --last', 'Preview the most recent session')
+  .option('-t, --title <title>', 'Custom title for the session')
+  .option('--light', 'Use light mode theme')
+  .option('--embed', 'Embed mode (compact, no chrome)')
   .action(async (sessionId, options) => {
     try {
       let session;
@@ -89,10 +92,18 @@ program
         session = await parseSession(sessionId);
       }
 
+      // Override title if provided
+      if (options.title) {
+        session.title = options.title;
+      }
+
       console.log(c('dim', `Generating preview for: ${session.title}`));
 
       // Generate HTML
-      const html = renderSessionToHtml(session);
+      const html = renderSessionToHtml(session, {
+        theme: options.light ? 'light' : 'dark',
+        embed: options.embed,
+      });
 
       // Write to temp file
       const tempDir = join(homedir(), '.ccshare', 'previews');
@@ -120,6 +131,9 @@ program
   .description('Export a session to HTML file')
   .option('-l, --last', 'Export the most recent session')
   .option('-o, --output <path>', 'Output file path')
+  .option('-t, --title <title>', 'Custom title for the session')
+  .option('--light', 'Use light mode theme')
+  .option('--embed', 'Embed mode (compact, no chrome)')
   .option('--private <password>', 'Create password-protected export')
   .action(async (sessionId, options) => {
     try {
@@ -131,9 +145,19 @@ program
         session = await parseSession(sessionId);
       }
 
+      // Override title if provided
+      if (options.title) {
+        session.title = options.title;
+      }
+
       console.log(c('dim', `Exporting: ${session.title}`));
 
       let html: string;
+
+      const renderOptions = {
+        theme: options.light ? 'light' as const : 'dark' as const,
+        embed: options.embed,
+      };
 
       if (options.private) {
         // Encrypt with password
@@ -141,6 +165,7 @@ program
         const { ciphertext, iv, salt } = await encryptForPrivate(sessionJson, options.private);
 
         html = renderSessionToHtml(session, {
+          ...renderOptions,
           encrypted: true,
           encryptedBlob: ciphertext,
           iv,
@@ -149,7 +174,7 @@ program
 
         console.log(c('yellow', `⚠ Password-protected export`));
       } else {
-        html = renderSessionToHtml(session);
+        html = renderSessionToHtml(session, renderOptions);
       }
 
       // Determine output path
@@ -170,6 +195,7 @@ program
   .command('share [session-id]')
   .description('Share a session and get a URL')
   .option('-l, --last', 'Share the most recent session')
+  .option('-t, --title <title>', 'Custom title for the session')
   .option('--private <password>', 'Create password-protected share')
   .option('-q, --quiet', 'Only output the URL')
   .action(async (sessionId, options) => {
@@ -180,6 +206,11 @@ program
         session = await parseLastSession();
       } else {
         session = await parseSession(sessionId);
+      }
+
+      // Override title if provided
+      if (options.title) {
+        session.title = options.title;
       }
 
       if (!options.quiet) {

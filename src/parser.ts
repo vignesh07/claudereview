@@ -232,10 +232,38 @@ function computeMetadata(
   const toolCounts: Record<string, number> = {};
   let toolCount = 0;
 
+  // Key moments tracking
+  const filesCreated = new Set<string>();
+  const filesModified = new Set<string>();
+  const commandsRun: string[] = [];
+
+  // Token estimation (rough approximation: 1 token ≈ 4 chars)
+  let totalChars = 0;
+
   for (const msg of messages) {
+    // Count characters for token estimation
+    totalChars += (msg.content || '').length;
+    if (msg.toolOutput) totalChars += msg.toolOutput.length;
+
     if (msg.type === 'tool_call' && msg.toolName) {
       toolCounts[msg.toolName] = (toolCounts[msg.toolName] || 0) + 1;
       toolCount++;
+
+      // Extract key moments
+      const input = msg.toolInput;
+      if (msg.toolName === 'Write' && input?.file_path) {
+        filesCreated.add(String(input.file_path));
+      }
+      if (msg.toolName === 'Edit' && input?.file_path) {
+        filesModified.add(String(input.file_path));
+      }
+      if (msg.toolName === 'Bash' && input?.command) {
+        const cmd = String(input.command);
+        // Only track interesting commands (not cd, ls, etc.)
+        if (!cmd.match(/^(cd|ls|pwd|echo|cat|head|tail)\b/) && cmd.length < 100) {
+          commandsRun.push(cmd);
+        }
+      }
     }
   }
 
@@ -264,6 +292,10 @@ function computeMetadata(
     startTime,
     endTime,
     tools: toolCounts,
+    filesCreated: [...filesCreated].slice(0, 20), // Limit to 20
+    filesModified: [...filesModified].slice(0, 20),
+    commandsRun: commandsRun.slice(0, 15), // Limit to 15 interesting commands
+    estimatedTokens: Math.round(totalChars / 4),
   };
 }
 

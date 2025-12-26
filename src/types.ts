@@ -47,6 +47,15 @@ export interface SessionMetadata {
   startTime: string;
   endTime: string;
   tools: Record<string, number>; // tool name -> usage count
+  // Key moments for TL;DR
+  filesCreated?: string[];
+  filesModified?: string[];
+  commandsRun?: string[];
+  // Estimated usage
+  estimatedTokens?: number;
+  // Git context if detectable
+  gitRepo?: string;
+  gitBranch?: string;
 }
 
 export interface ParsedMessage {
