@@ -1,6 +1,6 @@
 {
   "name": "claudereview",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Share Claude Code sessions for code review with encryption",
   "type": "module",
   "bin": {
