@@ -256,12 +256,19 @@ program
       // Get API URL from environment or default
       const apiUrl = process.env.CCSHARE_API_URL || 'https://claudereview.com';
 
+      // Get API key from env or config
+      let apiKey = process.env.CCSHARE_API_KEY;
+      if (!apiKey) {
+        const config = await loadConfig();
+        apiKey = config.apiKey;
+      }
+
       // Upload to server
       const response = await fetch(`${apiUrl}/api/upload`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          ...(process.env.CCSHARE_API_KEY && { 'Authorization': `Bearer ${process.env.CCSHARE_API_KEY}` }),
+          ...(apiKey && { 'Authorization': `Bearer ${apiKey}` }),
         },
         body: JSON.stringify({
           encryptedBlob,
@@ -308,21 +315,122 @@ program
     }
   });
 
-// Auth command (placeholder for now)
+// Config file path
+const CONFIG_DIR = join(homedir(), '.config', 'ccshare');
+const CONFIG_FILE = join(CONFIG_DIR, 'config.json');
+
+interface Config {
+  apiKey?: string;
+}
+
+async function loadConfig(): Promise<Config> {
+  try {
+    const content = await Bun.file(CONFIG_FILE).text();
+    return JSON.parse(content);
+  } catch {
+    return {};
+  }
+}
+
+async function saveConfig(config: Config): Promise<void> {
+  await mkdir(CONFIG_DIR, { recursive: true });
+  await writeFile(CONFIG_FILE, JSON.stringify(config, null, 2));
+}
+
+function getApiKey(): string | undefined {
+  // Environment variable takes precedence
+  return process.env.CCSHARE_API_KEY;
+}
+
+// Auth command
 program
   .command('auth')
   .description('Authenticate with claudereview.com')
-  .action(async () => {
-    console.log(c('dim', 'Opening browser for authentication...'));
-
+  .option('--status', 'Check authentication status')
+  .option('--logout', 'Remove saved credentials')
+  .action(async (options) => {
     const apiUrl = process.env.CCSHARE_API_URL || 'https://claudereview.com';
 
-    // Open browser for OAuth flow
-    const openCmd = process.platform === 'darwin' ? 'open' : process.platform === 'win32' ? 'start' : 'xdg-open';
-    Bun.spawn([openCmd, `${apiUrl}/login?cli=true`]);
+    if (options.status) {
+      const config = await loadConfig();
+      const envKey = process.env.CCSHARE_API_KEY;
 
-    console.log(c('dim', '\nAfter logging in, copy your API key and set it:'));
-    console.log(c('cyan', '  export CCSHARE_API_KEY=your_key_here\n'));
+      if (envKey) {
+        console.log(c('green', '✓ Authenticated via CCSHARE_API_KEY environment variable'));
+        console.log(c('dim', `  Key: ${envKey.slice(0, 10)}...`));
+      } else if (config.apiKey) {
+        console.log(c('green', '✓ Authenticated via saved config'));
+        console.log(c('dim', `  Key: ${config.apiKey.slice(0, 10)}...`));
+        console.log(c('dim', `  Config: ${CONFIG_FILE}`));
+      } else {
+        console.log(c('yellow', '✗ Not authenticated'));
+        console.log(c('dim', '  Run: ccshare auth'));
+      }
+      return;
+    }
+
+    if (options.logout) {
+      await saveConfig({});
+      console.log(c('green', '✓ Logged out'));
+      console.log(c('dim', '  Removed saved credentials from ' + CONFIG_FILE));
+      return;
+    }
+
+    // Interactive auth flow
+    console.log(c('bold', '\n  claudereview Authentication\n'));
+    console.log(c('dim', '  Opening browser to sign in with GitHub...\n'));
+
+    // Open browser to dashboard
+    const openCmd = process.platform === 'darwin' ? 'open' : process.platform === 'win32' ? 'start' : 'xdg-open';
+    Bun.spawn([openCmd, `${apiUrl}/dashboard`]);
+
+    console.log('  Steps:');
+    console.log(c('dim', '  1. Sign in with GitHub (if not already)'));
+    console.log(c('dim', '  2. Scroll to "API Keys" section'));
+    console.log(c('dim', '  3. Click "Generate New Key"'));
+    console.log(c('dim', '  4. Copy the key and paste it below\n'));
+
+    // Prompt for API key
+    process.stdout.write(c('cyan', '  Paste your API key: '));
+
+    const input = await new Promise<string>((resolve) => {
+      let data = '';
+      process.stdin.setRawMode?.(false);
+      process.stdin.resume();
+      process.stdin.setEncoding('utf8');
+      process.stdin.once('data', (chunk) => {
+        data = chunk.toString().trim();
+        resolve(data);
+      });
+    });
+
+    if (!input || !input.startsWith('cr_')) {
+      console.log(c('yellow', '\n  Invalid API key. Keys should start with "cr_"'));
+      process.exit(1);
+    }
+
+    // Verify the key works
+    console.log(c('dim', '\n  Verifying...'));
+
+    try {
+      const res = await fetch(`${apiUrl}/api/my-sessions`, {
+        headers: { 'Authorization': `Bearer ${input}` }
+      });
+
+      if (!res.ok) {
+        console.log(c('yellow', '  Invalid API key. Please try again.'));
+        process.exit(1);
+      }
+    } catch {
+      console.log(c('yellow', '  Could not verify key. Saving anyway.'));
+    }
+
+    // Save to config
+    await saveConfig({ apiKey: input });
+
+    console.log(c('green', '\n  ✓ Authenticated successfully!\n'));
+    console.log(c('dim', `  Config saved to: ${CONFIG_FILE}`));
+    console.log(c('dim', '  Your sessions will now be linked to your account.\n'));
   });
 
 // Helper functions
