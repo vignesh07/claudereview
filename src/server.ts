@@ -6,6 +6,7 @@ import { setCookie, getCookie, deleteCookie } from 'hono/cookie';
 import { nanoid } from 'nanoid';
 import { z } from 'zod';
 import { timingSafeEqual } from 'crypto';
+import sharp from 'sharp';
 import { db, sessions, users, apiKeys, sessionViews, type NewSession, type Session, type User } from './db/index.ts';
 import { eq, sql, desc, count, and, gte, between } from 'drizzle-orm';
 import { decrypt, encrypt, encryptForPublic, encryptForPrivate, generateKey, deriveKey, generateSalt } from './crypto.ts';
@@ -645,16 +646,48 @@ app.get('/', async (c) => {
   return c.html(generateLandingHtml(user));
 });
 
-// OG Image for social sharing
-app.get('/og-image.png', (c) => {
-  const svg = generateOgImageSvg();
-  // Return as SVG with PNG extension (most platforms handle this)
-  return new Response(svg, {
-    headers: {
-      'Content-Type': 'image/svg+xml',
-      'Cache-Control': 'public, max-age=86400',
-    },
-  });
+// OG Image for social sharing - convert SVG to PNG for compatibility
+let cachedOgImage: Buffer | null = null;
+
+app.get('/og-image.png', async (c) => {
+  try {
+    // Use cached PNG if available
+    if (cachedOgImage) {
+      return new Response(cachedOgImage, {
+        headers: {
+          'Content-Type': 'image/png',
+          'Cache-Control': 'public, max-age=86400',
+        },
+      });
+    }
+
+    const svg = generateOgImageSvg();
+
+    // Convert SVG to PNG using sharp
+    const pngBuffer = await sharp(Buffer.from(svg))
+      .png()
+      .toBuffer();
+
+    // Cache for subsequent requests
+    cachedOgImage = pngBuffer;
+
+    return new Response(pngBuffer, {
+      headers: {
+        'Content-Type': 'image/png',
+        'Cache-Control': 'public, max-age=86400',
+      },
+    });
+  } catch (error) {
+    console.error('OG image generation error:', error);
+    // Fallback to SVG if PNG conversion fails
+    const svg = generateOgImageSvg();
+    return new Response(svg, {
+      headers: {
+        'Content-Type': 'image/svg+xml',
+        'Cache-Control': 'public, max-age=86400',
+      },
+    });
+  }
 });
 
 // Privacy page
