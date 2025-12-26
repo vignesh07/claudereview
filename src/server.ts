@@ -211,6 +211,7 @@ app.get('/api/my-sessions', async (c) => {
     visibility: sessions.visibility,
     viewCount: sessions.viewCount,
     createdAt: sessions.createdAt,
+    ownerKey: sessions.ownerKey, // Include key for public session links
   })
     .from(sessions)
     .where(eq(sessions.userId, user.id))
@@ -1034,8 +1035,8 @@ function generateDashboardHtml(user: User): string {
               </div>
             </div>
             <div class="session-actions">
-              <button class="btn-text" onclick="copyLink('\${s.id}')">Copy</button>
-              <a href="/s/\${s.id}" class="btn-text" target="_blank">View</a>
+              <button class="btn-text" onclick="copyLink('\${s.id}', '\${s.ownerKey || ''}')">Copy</button>
+              <a href="/s/\${s.id}\${s.ownerKey ? '#key=' + s.ownerKey : ''}" class="btn-text" target="_blank">View</a>
               <button class="btn-text" onclick="openEditModal('\${s.id}', '\${escapeHtml(s.title).replace(/'/g, "\\\\'")}', '\${s.visibility}')">Edit</button>
               <button class="btn-icon btn-danger" onclick="openDeleteModal('\${s.id}')" title="Delete">×</button>
             </div>
@@ -1065,8 +1066,9 @@ function generateDashboardHtml(user: User): string {
       return date.toLocaleDateString();
     }
 
-    function copyLink(id) {
-      const url = window.location.origin + '/s/' + id;
+    function copyLink(id, key) {
+      let url = window.location.origin + '/s/' + id;
+      if (key) url += '#key=' + key;
       navigator.clipboard.writeText(url);
       // Show brief feedback
       const btn = event.target;
