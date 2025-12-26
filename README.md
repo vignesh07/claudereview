@@ -46,7 +46,7 @@ ccshare export --last -o session.html
 
 ### MCP Server
 
-Share sessions directly from Claude by adding to `~/.claude/settings.json`:
+Share sessions directly from Claude by adding to `~/.mcp.json`:
 
 ```json
 {

@@ -10,7 +10,7 @@ npm install -g claudereview-mcp
 bun add -g claudereview-mcp
 ```
 
-Then add to your Claude settings (`~/.claude/settings.json`):
+Then add to `~/.mcp.json`:
 
 ```json
 {

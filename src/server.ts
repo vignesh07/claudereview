@@ -1208,7 +1208,7 @@ function generateLandingHtml(user: User | null): string {
       <div class="integration-grid">
         <div class="integration-card">
           <h3>MCP Server</h3>
-          <p>Share sessions directly from Claude. Add to <code>~/.claude/settings.json</code>:</p>
+          <p>Share sessions directly from Claude. Add to <code>~/.mcp.json</code>:</p>
           <pre class="integration-code">{
   "mcpServers": {
     "claudereview": {
