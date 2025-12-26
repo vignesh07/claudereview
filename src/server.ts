@@ -1315,18 +1315,20 @@ Return the URL to me.</pre>
 
   <!-- Feedback Button -->
   <button id="feedback-btn" class="feedback-btn" onclick="openFeedback()">
-    <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
-    </svg>
-    Feedback
+    <span class="feedback-btn-icon">💬</span>
+    <span>Feedback</span>
   </button>
 
   <!-- Feedback Modal -->
   <div id="feedback-modal" class="feedback-modal" onclick="if(event.target===this)closeFeedback()">
     <div class="feedback-dialog">
-      <div class="feedback-header">
-        <h2>Share Feedback</h2>
-        <button class="feedback-close" onclick="closeFeedback()">×</button>
+      <div class="feedback-hero">
+        <div class="feedback-pill">We read every note</div>
+        <div class="feedback-hero-text">
+          <h2>Share Feedback</h2>
+          <p>Help shape claudereview. Quick thoughts are perfect.</p>
+        </div>
+        <button class="feedback-close" onclick="closeFeedback()" aria-label="Close feedback">×</button>
       </div>
       <div id="feedback-body" class="feedback-body">
         <form id="feedback-form" onsubmit="submitFeedback(event)">
@@ -1353,7 +1355,7 @@ Return the URL to me.</pre>
       <div id="feedback-success" class="feedback-success" style="display:none">
         <div class="success-icon">✓</div>
         <h3>Thank you!</h3>
-        <p>Your feedback has been submitted.</p>
+        <p>Your note landed safely in our queue.</p>
         <button onclick="closeFeedback()" class="feedback-submit">Close</button>
       </div>
     </div>
@@ -1505,7 +1507,7 @@ function generatePrivacyHtml(user: User | null): string {
       font-size: 2.5rem;
       font-weight: 600;
       margin-bottom: 16px;
-      color: var(--text-primary);
+      color: var(--text);
     }
     .privacy-content .subtitle {
       color: var(--text-secondary);
@@ -1516,13 +1518,13 @@ function generatePrivacyHtml(user: User | null): string {
       font-size: 1.5rem;
       font-weight: 600;
       margin: 48px 0 16px;
-      color: var(--text-primary);
+      color: var(--text);
     }
     .privacy-content h3 {
       font-size: 1.1rem;
       font-weight: 600;
       margin: 24px 0 12px;
-      color: var(--text-primary);
+      color: var(--text);
     }
     .privacy-content p, .privacy-content li {
       color: var(--text-secondary);
@@ -1669,10 +1671,10 @@ URL: claudereview.com/s/abc123#key=xxxxx
       <table style="width: 100%; border-collapse: collapse; margin: 24px 0;">
         <thead>
           <tr style="border-bottom: 1px solid var(--border);">
-            <th style="text-align: left; padding: 12px 8px; color: var(--text-primary);">Data</th>
-            <th style="text-align: center; padding: 12px 8px; color: var(--text-primary);">Public (Anonymous)</th>
-            <th style="text-align: center; padding: 12px 8px; color: var(--text-primary);">Public (Signed In)</th>
-            <th style="text-align: center; padding: 12px 8px; color: var(--text-primary);">Password-Protected</th>
+            <th style="text-align: left; padding: 12px 8px; color: var(--text);">Data</th>
+            <th style="text-align: center; padding: 12px 8px; color: var(--text);">Public (Anonymous)</th>
+            <th style="text-align: center; padding: 12px 8px; color: var(--text);">Public (Signed In)</th>
+            <th style="text-align: center; padding: 12px 8px; color: var(--text);">Password-Protected</th>
           </tr>
         </thead>
         <tbody>
@@ -4196,26 +4198,37 @@ header {
   position: fixed;
   bottom: 24px;
   right: 24px;
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  gap: 8px;
-  padding: 12px 20px;
-  background: var(--accent);
-  color: white;
+  gap: 10px;
+  padding: 14px 22px;
+  background: linear-gradient(135deg, #4f46e5, #9333ea);
+  color: #fff;
   border: none;
-  border-radius: 24px;
+  border-radius: 999px;
   font-family: var(--font-sans);
-  font-size: 14px;
-  font-weight: 500;
+  font-size: 15px;
+  font-weight: 600;
   cursor: pointer;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-  transition: all 0.2s;
+  box-shadow: 0 10px 25px rgba(79, 70, 229, 0.35);
+  transition: transform 0.2s, box-shadow 0.2s;
   z-index: 100;
 }
 
 .feedback-btn:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.2);
+  transform: translateY(-3px);
+  box-shadow: 0 15px 30px rgba(79, 70, 229, 0.45);
+}
+
+.feedback-btn-icon {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
 }
 
 /* Feedback Modal */
@@ -4241,56 +4254,77 @@ header {
 
 .feedback-dialog {
   width: 100%;
-  max-width: 420px;
+  max-width: 440px;
   background: var(--bg-secondary);
-  border-radius: 12px;
-  border: 1px solid var(--border);
-  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.2);
-  transform: scale(0.95);
-  transition: transform 0.2s;
+  border-radius: 18px;
+  border: 1px solid rgba(255, 255, 255, 0.04);
+  box-shadow: 0 40px 80px rgba(15, 23, 42, 0.45);
+  transform: translateY(12px);
+  transition: transform 0.25s ease, opacity 0.25s ease;
+  overflow: hidden;
 }
 
 .feedback-modal.open .feedback-dialog {
-  transform: scale(1);
+  transform: translateY(0);
 }
 
-.feedback-header {
-  display: flex;
+.feedback-hero {
+  position: relative;
+  padding: 28px;
+  background: radial-gradient(circle at top left, rgba(255, 255, 255, 0.3), transparent), linear-gradient(135deg, #3730a3, #7c3aed);
+  color: white;
+}
+
+.feedback-pill {
+  display: inline-flex;
   align-items: center;
-  justify-content: space-between;
-  padding: 16px 20px;
-  border-bottom: 1px solid var(--border);
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.2);
+  font-size: 12px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 12px;
 }
 
-.feedback-header h2 {
-  font-size: 18px;
+.feedback-hero-text h2 {
+  margin: 0 0 4px;
+  font-size: 22px;
   font-weight: 600;
-  color: var(--text-primary);
+}
+
+.feedback-hero-text p {
   margin: 0;
+  font-size: 14px;
+  color: rgba(255, 255, 255, 0.85);
 }
 
 .feedback-close {
-  width: 28px;
-  height: 28px;
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  width: 32px;
+  height: 32px;
   display: flex;
   align-items: center;
   justify-content: center;
-  background: transparent;
-  border: none;
-  font-size: 20px;
-  color: var(--text-muted);
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 50%;
+  font-size: 18px;
+  color: white;
   cursor: pointer;
-  border-radius: 4px;
-  transition: all 0.15s;
+  transition: background 0.2s;
 }
 
 .feedback-close:hover {
-  background: var(--bg-tertiary);
-  color: var(--text-primary);
+  background: rgba(255, 255, 255, 0.25);
 }
 
 .feedback-body {
-  padding: 20px;
+  padding: 24px;
 }
 
 .feedback-field {
@@ -4299,9 +4333,11 @@ header {
 
 .feedback-field label {
   display: block;
-  font-size: 13px;
-  font-weight: 500;
+  font-size: 12px;
+  font-weight: 600;
   color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
   margin-bottom: 8px;
 }
 
@@ -4318,26 +4354,28 @@ header {
 
 .feedback-type {
   flex: 1;
-  padding: 10px 12px;
-  background: transparent;
+  padding: 12px;
+  background: var(--bg);
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: 10px;
   font-family: var(--font-sans);
-  font-size: 13px;
+  font-size: 14px;
   color: var(--text-muted);
   cursor: pointer;
   transition: all 0.15s;
+  box-shadow: inset 0 -1px 0 rgba(255, 255, 255, 0.05);
 }
 
 .feedback-type:hover {
   border-color: var(--accent);
-  color: var(--text-primary);
+  color: var(--text);
 }
 
 .feedback-type.active {
-  border-color: var(--accent);
-  background: var(--accent);
-  color: white;
+  border-color: transparent;
+  background: linear-gradient(135deg, #6366f1, #8b5cf6);
+  color: #fff;
+  box-shadow: 0 8px 20px rgba(99, 102, 241, 0.3);
 }
 
 .feedback-body textarea,
@@ -4349,7 +4387,7 @@ header {
   border-radius: 8px;
   font-family: var(--font-sans);
   font-size: 14px;
-  color: var(--text-primary);
+  color: var(--text);
   resize: none;
   transition: border-color 0.15s;
   box-sizing: border-box;
@@ -4376,14 +4414,14 @@ header {
 
 .feedback-submit {
   width: 100%;
-  padding: 12px;
-  background: var(--accent);
+  padding: 13px;
+  background: linear-gradient(135deg, #4f46e5, #9333ea);
   color: white;
   border: none;
-  border-radius: 8px;
+  border-radius: 10px;
   font-family: var(--font-sans);
-  font-size: 14px;
-  font-weight: 500;
+  font-size: 15px;
+  font-weight: 600;
   cursor: pointer;
   transition: opacity 0.15s;
 }
@@ -4416,7 +4454,7 @@ header {
 .feedback-success h3 {
   font-size: 18px;
   font-weight: 600;
-  color: var(--text-primary);
+  color: var(--text);
   margin: 0 0 8px;
 }
 
