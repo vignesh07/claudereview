@@ -1353,7 +1353,7 @@ Return the URL to me.</pre>
       <div id="feedback-success" class="feedback-success" style="display:none">
         <div class="success-icon">✓</div>
         <h3>Thanks for the feedback</h3>
-        <p>We'll review it soon.</p>
+        <p>I'll review it soon.</p>
         <button onclick="closeFeedback()" class="feedback-submit">Close</button>
       </div>
     </div>
@@ -1613,12 +1613,12 @@ function generatePrivacyHtml(user: User | null): string {
 
       <div class="highlight-box">
         <h3><span class="badge green">Password-Protected</span> True End-to-End Encryption</h3>
-        <p>When you share with <code>--private "password"</code>, the encryption key is derived from your password using PBKDF2 (600,000 iterations, SHA-256). The key never leaves your machine and is never stored on our servers. We cannot decrypt these sessions even if we wanted to.</p>
+        <p>When you share with <code>--private "password"</code>, the encryption key is derived from your password using PBKDF2 (600,000 iterations, SHA-256). The key never leaves your machine and is never stored on the server. claudereview cannot decrypt these sessions even if I wanted to.</p>
       </div>
 
       <div class="highlight-box">
         <h3><span class="badge blue">Public Links</span> Encrypted at Rest</h3>
-        <p>When you share without a password, the session is encrypted with a random key. The key is embedded in the URL fragment (<code>#key=xxx</code>). For anonymous shares, the key is only in the URL. For authenticated users, we store the key so you can view your sessions from the dashboard.</p>
+        <p>When you share without a password, the session is encrypted with a random key. The key is embedded in the URL fragment (<code>#key=xxx</code>). For anonymous shares, the key is only in the URL. For authenticated users, claudereview stores the key so you can view your sessions from the dashboard.</p>
       </div>
 
       <h2>How Encryption Works</h2>
@@ -1664,7 +1664,7 @@ URL: claudereview.com/s/abc123#key=xxxxx
                                 └─────┘
                                 Fragment never sent to server</div>
 
-      <h2>What We Store</h2>
+      <h2>What Gets Stored</h2>
 
       <table style="width: 100%; border-collapse: collapse; margin: 24px 0;">
         <thead>
@@ -1715,17 +1715,17 @@ URL: claudereview.com/s/abc123#key=xxxxx
         </tbody>
       </table>
 
-      <h2>Can We Read Your Sessions?</h2>
+      <h2>Can claudereview Read Your Sessions?</h2>
 
       <ul>
-        <li><strong>Password-protected sessions:</strong> <span class="badge green">No</span> The key is derived from your password and never stored. We cannot decrypt these even with database access.</li>
-        <li><strong>Public sessions (signed in):</strong> <span class="badge yellow">Technically yes</span> We store the encryption key to enable dashboard viewing. However, we do not access session content and the code is open source for you to verify.</li>
-        <li><strong>Public sessions (anonymous):</strong> <span class="badge green">No</span> The key exists only in the URL fragment which is never sent to our servers.</li>
+        <li><strong>Password-protected sessions:</strong> <span class="badge green">No</span> The key is derived from your password and never stored. claudereview cannot decrypt these even with database access.</li>
+        <li><strong>Public sessions (signed in):</strong> <span class="badge yellow">Technically yes</span> claudereview stores the encryption key to enable dashboard viewing. However, I do not access session content and the code is open source for you to verify.</li>
+        <li><strong>Public sessions (anonymous):</strong> <span class="badge green">No</span> The key exists only in the URL fragment which is never sent to the server.</li>
       </ul>
 
       <h2>Recommendations</h2>
       <ul>
-        <li>Use <code>--private "password"</code> for sensitive sessions that you want to guarantee cannot be read by anyone (including us)</li>
+        <li>Use <code>--private "password"</code> for sensitive sessions that you want to guarantee cannot be read by anyone (including me)</li>
         <li>Share public links for routine code reviews where convenience matters more than maximum privacy</li>
         <li>If you lose a password for a private session, the session is unrecoverable by design</li>
       </ul>
@@ -1741,7 +1741,7 @@ URL: claudereview.com/s/abc123#key=xxxxx
       <ul>
         <li>Sessions are stored indefinitely unless you delete them from your dashboard</li>
         <li>Anonymous sessions cannot be deleted (you don't own them)</li>
-        <li>We may add session expiration features in the future</li>
+        <li>I may add session expiration features in the future</li>
       </ul>
 
       <h2>Questions?</h2>
