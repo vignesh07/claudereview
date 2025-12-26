@@ -21,6 +21,7 @@ export const sessions = pgTable('sessions', {
   encryptedBlob: text('encrypted_blob').notNull(), // base64 encoded
   iv: text('iv').notNull(), // initialization vector
   salt: text('salt'), // for private sessions (password key derivation)
+  ownerKey: text('owner_key'), // encryption key for owner viewing (only stored for authenticated uploads)
   viewCount: integer('view_count').default(0).notNull(),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   expiresAt: timestamp('expires_at'), // optional expiration

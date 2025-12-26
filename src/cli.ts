@@ -289,6 +289,7 @@ program
           encryptedBlob,
           iv,
           salt,
+          ownerKey: apiKey ? key : undefined, // Send key so owner can view from dashboard
           visibility,
           metadata: {
             title: session.title,

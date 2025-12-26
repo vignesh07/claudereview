@@ -377,6 +377,7 @@ const uploadSchema = z.object({
   encryptedBlob: z.string(),
   iv: z.string(),
   salt: z.string().optional(),
+  ownerKey: z.string().optional(), // encryption key for owner to view later
   visibility: z.enum(['public', 'private']),
   metadata: z.object({
     title: z.string(),
@@ -441,6 +442,7 @@ app.post('/api/upload', async (c) => {
       encryptedBlob: parsed.encryptedBlob,
       iv: parsed.iv,
       salt: parsed.salt || null,
+      ownerKey: userId && parsed.ownerKey ? parsed.ownerKey : null, // Only store key if authenticated
     };
 
     await db.insert(sessions).values(session);
@@ -474,6 +476,10 @@ app.get('/api/session/:id', async (c) => {
       return c.json({ error: 'Session not found' }, 404);
     }
 
+    // Check if requester is the owner
+    const user = await getCurrentUser(c);
+    const isOwner = user && session.userId === user.id;
+
     // Increment view count
     await db.update(sessions)
       .set({ viewCount: session.viewCount + 1 })
@@ -485,6 +491,7 @@ app.get('/api/session/:id', async (c) => {
       iv: session.iv,
       visibility: session.visibility,
       salt: session.salt,
+      ownerKey: isOwner ? session.ownerKey : undefined, // Only include key for owner
       metadata: {
         title: session.title,
         messageCount: session.messageCount,
@@ -2500,11 +2507,14 @@ const VIEWER_SCRIPT = `
     const sessionData = await response.json();
     loading.classList.add('hidden');
 
-    // Check for key in URL fragment
+    // Check for key in URL fragment or use ownerKey if available
     const hash = window.location.hash;
     const keyMatch = hash.match(/key=([^&]+)/);
 
-    if (keyMatch && !sessionData.salt) {
+    if (sessionData.ownerKey) {
+      // Owner viewing their own session - use stored key
+      await decryptAndRender(sessionData, sessionData.ownerKey);
+    } else if (keyMatch && !sessionData.salt) {
       // Public session with key in URL
       await decryptAndRender(sessionData, keyMatch[1]);
     } else if (sessionData.salt) {
