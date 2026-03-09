@@ -1,4 +1,4 @@
-import { readdir, stat, readFile } from 'fs/promises';
+import { readdir, stat, readFile, open } from 'fs/promises';
 import { join, basename } from 'path';
 import { homedir } from 'os';
 import { exec } from 'child_process';
@@ -13,6 +13,150 @@ const execAsync = promisify(exec);
 const CLAUDE_PROJECTS_DIR = join(homedir(), '.claude', 'projects');
 const CODEX_SESSIONS_DIR = join(homedir(), '.codex', 'sessions');
 const GEMINI_SESSIONS_DIR = join(homedir(), '.gemini', 'tmp');
+const FIRST_LINE_READ_LIMIT_BYTES = 64 * 1024;
+const FIRST_LINE_CHUNK_BYTES = 4 * 1024;
+
+function parseCodexSessionId(file: string): string {
+  const idMatch = file.match(/([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})\.jsonl$/i);
+  return idMatch?.[1] ?? file.replace('.jsonl', '');
+}
+
+async function readFirstLine(filePath: string, limitBytes = FIRST_LINE_READ_LIMIT_BYTES): Promise<string> {
+  const handle = await open(filePath, 'r');
+
+  try {
+    const chunks: Buffer[] = [];
+    let totalBytes = 0;
+    let position = 0;
+
+    while (totalBytes < limitBytes) {
+      const bytesToRead = Math.min(FIRST_LINE_CHUNK_BYTES, limitBytes - totalBytes);
+      const buffer = Buffer.alloc(bytesToRead);
+      const { bytesRead } = await handle.read(buffer, 0, bytesToRead, position);
+
+      if (bytesRead === 0) break;
+
+      const chunk = buffer.subarray(0, bytesRead);
+      const newlineIndex = chunk.indexOf(0x0a);
+
+      if (newlineIndex >= 0) {
+        chunks.push(chunk.subarray(0, newlineIndex));
+        break;
+      }
+
+      chunks.push(chunk);
+      totalBytes += bytesRead;
+      position += bytesRead;
+    }
+
+    return Buffer.concat(chunks).toString('utf-8').replace(/\r$/, '');
+  } finally {
+    await handle.close();
+  }
+}
+
+async function readCodexProjectPath(filePath: string): Promise<string> {
+  try {
+    const firstLine = await readFirstLine(filePath);
+    if (!firstLine) return '';
+
+    const parsed = JSON.parse(firstLine);
+    if (parsed.type === 'session_meta' && parsed.payload?.cwd) {
+      return parsed.payload.cwd;
+    }
+  } catch {
+    // Ignore errors reading metadata
+  }
+
+  return '';
+}
+
+async function createCodexLocalSession(filePath: string, file: string): Promise<LocalSession> {
+  const fileStat = await stat(filePath);
+
+  return {
+    id: parseCodexSessionId(file),
+    path: filePath,
+    projectPath: await readCodexProjectPath(filePath),
+    modifiedAt: fileStat.mtime,
+    title: undefined,
+    source: 'codex',
+  };
+}
+
+function looksLikeCodexSessionId(sessionId: string): boolean {
+  return /^[a-f0-9-]{8,}$/i.test(sessionId);
+}
+
+async function getCodexSessionById(sessionId: string): Promise<LocalSession | null> {
+  let prefixMatch: { filePath: string; file: string } | null = null;
+
+  try {
+    const years = await readdir(CODEX_SESSIONS_DIR);
+
+    for (const year of years) {
+      const yearPath = join(CODEX_SESSIONS_DIR, year);
+      let yearStat;
+      try {
+        yearStat = await stat(yearPath);
+      } catch {
+        continue;
+      }
+      if (!yearStat.isDirectory()) continue;
+
+      const months = await readdir(yearPath);
+      for (const month of months) {
+        const monthPath = join(yearPath, month);
+        let monthStat;
+        try {
+          monthStat = await stat(monthPath);
+        } catch {
+          continue;
+        }
+        if (!monthStat.isDirectory()) continue;
+
+        const days = await readdir(monthPath);
+        for (const day of days) {
+          const dayPath = join(monthPath, day);
+          let dayStat;
+          try {
+            dayStat = await stat(dayPath);
+          } catch {
+            continue;
+          }
+          if (!dayStat.isDirectory()) continue;
+
+          const files = await readdir(dayPath);
+          for (const file of files.filter(f => f.endsWith('.jsonl'))) {
+            const id = parseCodexSessionId(file);
+            const filePath = join(dayPath, file);
+
+            if (id === sessionId) {
+              return createCodexLocalSession(filePath, file);
+            }
+
+            if (!id.startsWith(sessionId)) continue;
+
+            if (prefixMatch) {
+              throw new Error(`Ambiguous session ID "${sessionId}" matches multiple Codex sessions`);
+            }
+
+            prefixMatch = { filePath, file };
+          }
+        }
+      }
+    }
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      return null;
+    }
+    throw error;
+  }
+
+  if (!prefixMatch) return null;
+
+  return createCodexLocalSession(prefixMatch.filePath, prefixMatch.file);
+}
 
 /**
  * List all available sessions across all projects (Claude Code, Codex, and Gemini)
@@ -135,36 +279,7 @@ async function listCodexSessions(): Promise<LocalSession[]> {
           const files = await readdir(dayPath);
           for (const file of files.filter(f => f.endsWith('.jsonl'))) {
             const filePath = join(dayPath, file);
-            const fileStat = await stat(filePath);
-
-            // Extract session ID (UUID) from filename like rollout-YYYY-MM-DDTHH-MM-SS-{uuid}.jsonl
-            const idMatch = file.match(/([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})\.jsonl$/i);
-            const id = idMatch?.[1] ?? file.replace('.jsonl', '');
-
-            // Try to get project path (cwd) from session_meta
-            let projectPath = '';
-            let title: string | undefined;
-            try {
-              const content = await readFile(filePath, 'utf-8');
-              const firstLine = content.split('\n')[0];
-              if (firstLine) {
-                const parsed = JSON.parse(firstLine);
-                if (parsed.type === 'session_meta' && parsed.payload?.cwd) {
-                  projectPath = parsed.payload.cwd;
-                }
-              }
-            } catch {
-              // Ignore errors reading metadata
-            }
-
-            sessions.push({
-              id,
-              path: filePath,
-              projectPath,
-              modifiedAt: fileStat.mtime,
-              title,
-              source: 'codex',
-            });
+            sessions.push(await createCodexLocalSession(filePath, file));
           }
         }
       }
@@ -277,6 +392,11 @@ export async function listSessionsForProject(projectDir: string): Promise<LocalS
  * Get a session by ID (searches all projects)
  */
 export async function getSession(sessionId: string): Promise<LocalSession | null> {
+  if (looksLikeCodexSessionId(sessionId)) {
+    const codexSession = await getCodexSessionById(sessionId);
+    if (codexSession) return codexSession;
+  }
+
   const sessions = await listSessions();
 
   // Try exact match first
